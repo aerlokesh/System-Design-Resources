@@ -67,9 +67,11 @@ dist/
 *.backup
 *.old
 
-# Archive files (keep PDFs and images)
-# But ignore unnecessary archives
+# Archive files
 *.7z
+
+# PDF files (generated documentation)
+*.pdf
 
 # Notes and drafts (keep if you want to track them)
 # *-draft.md
