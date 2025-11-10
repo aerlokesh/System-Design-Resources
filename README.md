@@ -7,6 +7,8 @@ A comprehensive collection of System Design resources including High-Level Desig
 ```
 SYSTEM DESIGN/
 ├── LLD/                          # Low-Level Design (Implementation Code)
+│   ├── Design-Patterns/          # Design Pattern Implementations (8 patterns)
+│   └── [Complete Systems]        # Full system implementations (10 systems)
 ├── HLD/                          # High-Level Design (Architecture Documents)
 ├── System-Design-Resources/      # General System Design Guides & Concepts
 └── README.md                     # This file
@@ -16,23 +18,25 @@ SYSTEM DESIGN/
 
 ## 📂 LLD - Low-Level Design (18 Files)
 
-**Design Pattern Implementations** - Complete Java implementations with multiple real-world examples:
+### 🎨 Design-Patterns/ (8 Pattern Files)
 
-### Creational Patterns
+Complete Java implementations with multiple real-world examples:
+
+#### Creational Patterns
 - `BuilderPattern.java` - 6 examples (House, Computer, Meal, Report, SQL Query, User Profile builders)
 - `FactoryPattern.java` - 5 examples (Database, Notification, Payment, Document, Vehicle factories)
 - `SingletonPattern.java` - 6 examples (Connection Pool, Config Manager, Logger, Cache, Thread Pool)
 
-### Structural Patterns
+#### Structural Patterns
 - `CompositePattern.java` - 5 examples (File System, Organization, Menu, Graphics, Product Catalog)
 - `DecoratorPattern.java` - 5 examples (Coffee Shop, Text Formatting, Pizza, Notifications, Car Features)
 
-### Behavioral Patterns
+#### Behavioral Patterns
 - `ObserverPattern.java` - 5 examples (Email, Stock Market, Weather Station, Social Media, Events)
 - `ChainOfResponsibilityPattern.java` - 5 examples (Spam Filter, Support Tickets, Logging, ATM, Auth)
 - `StrategyPattern.java` - 5 examples (Sorting, Payment, Compression, Routes, Pricing)
 
-### Complete System Implementations
+### 💻 Complete System Implementations (10 Files)
 - `ABTestingPlatform.java` - A/B testing platform with experiments and variants
 - `ATMSystem.java` - ATM system with accounts, transactions, and state management
 - `ElevatorSystem.java` - Elevator control system with scheduling
@@ -103,7 +107,7 @@ Fundamental concepts, guides, and best practices:
 
 ### For Learning LLD Patterns:
 ```bash
-cd LLD/
+cd LLD/Design-Patterns/
 # Run any pattern file to see examples
 java ObserverPattern.java
 java FactoryPattern.java
