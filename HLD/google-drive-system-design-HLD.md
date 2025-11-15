@@ -1,257 +1,549 @@
-# Global File Storage & Sharing System - High-Level Design (HLD)
-
----
+# Global File Storage & Sharing System Design (Like Google Drive)
 
 ## Table of Contents
 1. [Problem Statement](#problem-statement)
 2. [Requirements](#requirements)
 3. [Capacity Estimation](#capacity-estimation)
-4. [Back-of-Envelope Calculations](#back-of-envelope-calculations)
-5. [High-Level Architecture](#high-level-architecture)
-6. [Core Components](#core-components)
-7. [Data Flow](#data-flow)
-8. [Database Design](#database-design)
+4. [API Design](#api-design)
+5. [Database Schema](#database-schema)
+6. [High-Level Architecture](#high-level-architecture)
+7. [Detailed Component Design](#detailed-component-design)
+8. [Data Flow](#data-flow)
 9. [Design Decisions & Trade-offs](#design-decisions--trade-offs)
-10. [Scalability Strategy](#scalability-strategy)
-11. [Reliability & Availability](#reliability--availability)
-12. [Security](#security)
+10. [Advanced Features](#advanced-features)
+11. [Monitoring & Operations](#monitoring--operations)
 
 ---
 
 ## Problem Statement
 
-Design a scalable, reliable, globally distributed file storage and sharing system like Google Drive or Dropbox.
-
-### Core Functionality
-- Upload/download files of any size (up to 10GB)
-- Share files with other users (permissions management)
+Design a scalable, reliable, and globally distributed file storage and sharing system that allows users to:
+- Upload, download, and manage files
+- Share files with other users
 - Access files from multiple devices
-- Real-time synchronization across devices
-- Search files by name and content
-- Version history (last 30 days)
+- Sync files across devices in real-time
+- Collaborate on documents
 
-### Target Scale
-- **1 Billion** total users
-- **200 Million** daily active users (DAU)
-- **10 PB** total storage
-- **99.99%** availability
-- Global distribution
+**Scale**: Billions of users, Petabytes of data storage
 
 ---
 
 ## Requirements
 
 ### Functional Requirements
-1. **File Operations**: Upload, download, delete, update files
-2. **Folder Management**: Create folders, organize hierarchy
-3. **Sharing**: Share files/folders with users or via public links
-4. **Synchronization**: Real-time sync across devices
-5. **Search**: Find files by name, content, metadata
-6. **Version Control**: Maintain and restore file versions
-7. **Permissions**: Owner, editor, viewer access levels
+1. **File Operations**
+   - Upload files (single/multiple, any size)
+   - Download files
+   - Delete files
+   - Update/Replace files
+   - Create folders and organize files
+
+2. **Sharing & Permissions**
+   - Share files/folders with specific users
+   - Share via public links
+   - Set permissions (view, edit, comment)
+   - Revoke access
+
+3. **Synchronization**
+   - Real-time sync across devices
+   - Offline mode support
+   - Conflict resolution
+
+4. **Search & Discovery**
+   - Search files by name, type, content
+   - Filter by date, size, owner
+
+5. **Version Control**
+   - Maintain file version history
+   - Restore previous versions
 
 ### Non-Functional Requirements
-1. **Scalability**: Handle billions of users, petabytes of data
-2. **Availability**: 99.99% uptime (4 nines)
-3. **Consistency**: Strong for metadata, eventual for sync
-4. **Performance**: 
-   - Upload/Download: < 100ms latency (small files)
+1. **Scalability**
+   - Support billions of users
+   - Handle petabytes of data
+   - Support millions of concurrent connections
+
+2. **Availability**
+   - 99.99% uptime (4 nines)
+   - No single point of failure
+   - Graceful degradation
+
+3. **Consistency**
+   - Eventual consistency for sync
+   - Strong consistency for metadata
+
+4. **Performance**
+   - Upload/Download: < 100ms latency (for small files)
    - Sync latency: < 5 seconds
-5. **Durability**: 99.999999999% (11 nines)
-6. **Security**: Encryption at rest and in transit, access control
+   - Search results: < 500ms
+
+5. **Reliability**
+   - Data durability: 99.999999999% (11 nines)
+   - No data loss
+   - Automatic backup and recovery
+
+6. **Security**
+   - End-to-end encryption option
+   - Data encryption at rest and in transit
+   - Access control and authentication
+   - Audit logging
 
 ---
 
 ## Capacity Estimation
 
-### Scale Assumptions
-```
-Users:
-- Total Users: 1 Billion
-- Daily Active Users (DAU): 200 Million (20%)
-- Average Storage per User: 10 GB
+### Assumptions
+- **Total Users**: 1 Billion active users
+- **Daily Active Users (DAU)**: 200 Million (20%)
+- **Average Storage per User**: 10 GB
+- **Average File Size**: 2 MB
+- **Read:Write Ratio**: 3:1
 
-Files:
-- Average File Size: 2 MB
-- Files per User: 5,000
-- Total Files: 5 Trillion files
-
-Read/Write Ratio: 3:1 (more downloads than uploads)
+### Storage Estimation
 ```
-
-### Storage Requirements
-```
-Total Storage = 1B users × 10 GB = 10 PB
+Total Storage = 1B users × 10 GB = 10 PB (Petabytes)
 With 3x replication = 30 PB
+
+Average Files per User = 10 GB / 2 MB = 5,000 files
+Total Files = 1B × 5,000 = 5 Trillion files
 ```
 
-### Traffic Estimation
+### Bandwidth Estimation
 ```
 Upload Traffic:
-- Daily uploads: 200M users × 5 files = 1B files/day
-- Upload data: 1B × 2 MB = 2 PB/day
-- Upload bandwidth: ~23 GB/sec
+- Files uploaded per day = 200M × 5 files = 1B files/day
+- Data uploaded = 1B × 2 MB = 2 PB/day
+- Upload bandwidth = 2 PB / 86,400 sec = ~23 GB/sec
 
-Download Traffic:
-- 3x uploads = ~69 GB/sec
+Download Traffic (3x uploads):
+- Download bandwidth = 69 GB/sec
 
-Total Peak Bandwidth: ~100 GB/sec
+Total Bandwidth Required: ~100 GB/sec peak
 ```
 
 ### QPS (Queries Per Second)
 ```
-Total Daily Requests:
-- Uploads: 1B requests
-- Downloads: 3B requests  
-- Metadata operations: 2B requests
+Total Requests per Day:
+- Uploads: 200M users × 5 = 1B requests
+- Downloads: 3B requests
+- Metadata Operations: 2B requests
 - Total: 6B requests/day
 
-Average QPS: ~70,000
-Peak QPS (3x): ~200,000
+Average QPS = 6B / 86,400 = ~70,000 QPS
+Peak QPS (3x average) = ~200,000 QPS
 ```
 
-### Memory for Caching
+### Memory Estimation (Cache)
 ```
 Metadata Cache:
-- 1 KB per file metadata
-- Cache 20% hot files = 1T files
-- Required cache: ~1 TB
+- Metadata per file: 1 KB (filename, size, owner, timestamps)
+- Cache 20% hot files = 1T files × 1 KB = 1 TB
+- With overhead: ~2 TB cache needed
 ```
 
 ---
 
-## Back-of-Envelope Calculations
+## API Design
 
-### Latency Numbers Every Programmer Should Know
+### RESTful APIs
 
-```
-L1 cache reference                    0.5 ns
-Branch mispredict                     5   ns
-L2 cache reference                    7   ns             14x L1 cache
-Mutex lock/unlock                     25  ns
-Main memory reference                 100 ns             20x L2, 200x L1
-Compress 1K with Snappy              10,000 ns    10 μs
-Send 1 KB over 1 Gbps network        10,000 ns    10 μs
-Read 4 KB randomly from SSD         150,000 ns   150 μs   ~1GB/sec SSD
-Read 1 MB sequentially from memory  250,000 ns   250 μs
-Round trip within datacenter        500,000 ns   500 μs
-Read 1 MB sequentially from SSD   1,000,000 ns  1000 μs   1 ms
-Disk seek                        10,000,000 ns 10000 μs  10 ms
-Read 1 MB sequentially from disk 30,000,000 ns 30000 μs  30 ms
-Send packet US→Europe→US        150,000,000 ns   150 ms
-```
+#### 1. File Management APIs
 
-### Powers of Two Table
+```http
+# Upload File
+POST /api/v1/files/upload
+Headers: Authorization: Bearer <token>
+Content-Type: multipart/form-data
+Body: {
+    file: <binary_data>,
+    parent_folder_id: "folder_123",
+    metadata: {
+        name: "document.pdf",
+        description: "Project documentation"
+    }
+}
+Response: {
+    file_id: "file_456",
+    name: "document.pdf",
+    size: 2048576,
+    upload_url: "https://upload.server.com/...",
+    chunk_size: 5242880,
+    created_at: "2024-01-01T10:00:00Z"
+}
 
-```
-Power   Exact Value         Approx Value    Bytes
-------------------------------------------------------
-10      1,024              ~1 thousand      1 KB
-16      65,536             ~65 thousand     64 KB
-20      1,048,576          ~1 million       1 MB
-30      1,073,741,824      ~1 billion       1 GB
-40      1,099,511,627,776  ~1 trillion      1 TB
-50      ~1 quadrillion                      1 PB
-```
+# Download File
+GET /api/v1/files/{file_id}/download
+Headers: Authorization: Bearer <token>
+Response: 302 Redirect to signed URL or file stream
 
-### Server Capacity Estimation
+# Get File Metadata
+GET /api/v1/files/{file_id}
+Response: {
+    file_id: "file_456",
+    name: "document.pdf",
+    size: 2048576,
+    mime_type: "application/pdf",
+    owner_id: "user_123",
+    created_at: "2024-01-01T10:00:00Z",
+    modified_at: "2024-01-01T12:00:00Z",
+    version: 3,
+    parent_folder_id: "folder_123",
+    shared_with: ["user_789"],
+    permissions: ["read", "write"]
+}
 
-```
-Given:
-- Upload bandwidth needed: 23 GB/sec
-- Assume each server handles: 1 GB/sec network throughput
-- Peak load factor: 3x average
+# Delete File
+DELETE /api/v1/files/{file_id}
+Response: 204 No Content
 
-Calculation:
-- Average servers = 23 GB/sec ÷ 1 GB/sec = 23 servers
-- Peak servers = 23 × 3 = 69 servers
-- With redundancy (N+1) = ~70-80 servers
-
-For global deployment:
-- 3 regions × 80 servers = 240 servers total
-```
-
-### Database Sizing
-
-```
-Metadata per file: ~1 KB
-- file_id: 8 bytes
-- owner_id: 8 bytes
-- name: 255 bytes
-- size: 8 bytes
-- timestamps: 24 bytes
-- path: 500 bytes
-- other fields: ~200 bytes
-Total: ~1 KB
-
-For 5 Trillion files:
-- Storage needed = 5T × 1 KB = 5 PB metadata
-- With indexing (2x) = 10 PB
-- Sharded across 1000 DB servers = 10 GB per server
+# Update File Metadata
+PATCH /api/v1/files/{file_id}
+Body: {
+    name: "new_name.pdf",
+    description: "Updated description"
+}
 ```
 
-### Network Bandwidth Analysis
+#### 2. Folder Management APIs
 
-```
-Upload Scenario:
-- 200M users upload 5 files/day
-- Average file size: 2 MB
-- Total data: 200M × 5 × 2 MB = 2 PB/day
-- Per second: 2 PB / 86,400 sec ≈ 23 GB/sec
-- With peaks (3x): ~70 GB/sec
+```http
+# Create Folder
+POST /api/v1/folders
+Body: {
+    name: "Project Documents",
+    parent_folder_id: "root"
+}
 
-Download Scenario (3:1 read/write ratio):
-- Download traffic: 23 × 3 = 69 GB/sec
-- With peaks: ~210 GB/sec
-
-Total bandwidth requirement:
-- Average: ~100 GB/sec
-- Peak: ~300 GB/sec
-```
-
-### Cost Estimation (Rough)
-
-```
-Storage Costs (AWS S3):
-- 10 PB × $23/TB/month = $230,000/month
-- With replication (3x): ~$700,000/month
-
-Bandwidth Costs:
-- 2 PB upload/day × 30 days = 60 PB/month
-- 6 PB download/day × 30 days = 180 PB/month
-- At $0.09/GB: ~$21M/month for bandwidth
-
-Database:
-- 1000 instances × $500/month = $500,000/month
-
-Total Monthly Cost: ~$22M/month
-Annual Cost: ~$260M/year
-
-Per User Cost: $260M ÷ 1B users = $0.26/user/year
+# List Folder Contents
+GET /api/v1/folders/{folder_id}/contents
+Query Params: ?page=1&limit=50&sort=name&order=asc
+Response: {
+    items: [
+        {type: "folder", id: "folder_789", name: "Subfolder"},
+        {type: "file", id: "file_456", name: "document.pdf"}
+    ],
+    total: 150,
+    page: 1,
+    has_more: true
+}
 ```
 
-### Availability Calculation
+#### 3. Sharing & Permissions APIs
 
-**Target: 99.99% (Four 9s)**
+```http
+# Share File/Folder
+POST /api/v1/shares
+Body: {
+    resource_id: "file_456",
+    resource_type: "file",
+    share_with: ["user_789", "user_101"],
+    permission: "read",
+    expiry: "2024-12-31T23:59:59Z"
+}
+
+# Create Public Link
+POST /api/v1/shares/public
+Body: {
+    resource_id: "file_456",
+    permission: "read",
+    expiry: "2024-12-31T23:59:59Z"
+}
+Response: {
+    share_link: "https://drive.example.com/s/abc123xyz",
+    short_code: "abc123xyz"
+}
+
+# Get Share Information
+GET /api/v1/shares/{share_id}
+
+# Revoke Share
+DELETE /api/v1/shares/{share_id}
+```
+
+#### 4. Sync APIs
+
+```http
+# Get Changes Since Last Sync
+GET /api/v1/sync/changes
+Query Params: ?since=<timestamp>&device_id=<id>
+Response: {
+    changes: [
+        {
+            type: "create",
+            file_id: "file_456",
+            path: "/Documents/file.pdf",
+            timestamp: "2024-01-01T10:00:00Z"
+        },
+        {
+            type: "delete",
+            file_id: "file_789",
+            timestamp: "2024-01-01T10:05:00Z"
+        }
+    ],
+    cursor: "next_page_token"
+}
+
+# Register Device
+POST /api/v1/devices/register
+Body: {
+    device_name: "MacBook Pro",
+    device_type: "desktop",
+    os: "macOS"
+}
+```
+
+#### 5. Search API
+
+```http
+# Search Files
+GET /api/v1/search
+Query Params: ?q=document&type=pdf&modified_after=2024-01-01
+Response: {
+    results: [
+        {
+            file_id: "file_456",
+            name: "document.pdf",
+            path: "/Projects/document.pdf",
+            snippet: "...relevant content...",
+            score: 0.95
+        }
+    ],
+    total: 42,
+    page: 1
+}
+```
+
+#### 6. Version Control APIs
+
+```http
+# List File Versions
+GET /api/v1/files/{file_id}/versions
+Response: {
+    versions: [
+        {
+            version_id: "v3",
+            modified_at: "2024-01-01T12:00:00Z",
+            modified_by: "user_123",
+            size: 2048576
+        }
+    ]
+}
+
+# Restore Version
+POST /api/v1/files/{file_id}/versions/{version_id}/restore
+```
+
+---
+
+## Database Schema
+
+### SQL Database (Metadata - PostgreSQL/MySQL)
+
+```sql
+-- Users Table
+CREATE TABLE users (
+    user_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    username VARCHAR(100) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    storage_quota BIGINT DEFAULT 15000000000, -- 15GB
+    storage_used BIGINT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP,
+    INDEX idx_email (email),
+    INDEX idx_username (username)
+);
+
+-- Files Table
+CREATE TABLE files (
+    file_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    file_uuid VARCHAR(36) UNIQUE NOT NULL, -- UUID for external references
+    owner_id BIGINT NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    size BIGINT NOT NULL,
+    mime_type VARCHAR(100),
+    storage_path VARCHAR(1000), -- S3 path
+    parent_folder_id BIGINT,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    deleted_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    checksum VARCHAR(64), -- SHA-256
+    version INT DEFAULT 1,
+    FOREIGN KEY (owner_id) REFERENCES users(user_id),
+    FOREIGN KEY (parent_folder_id) REFERENCES folders(folder_id),
+    INDEX idx_owner_parent (owner_id, parent_folder_id),
+    INDEX idx_name (name),
+    INDEX idx_created (created_at),
+    INDEX idx_checksum (checksum) -- For deduplication
+);
+
+-- Folders Table
+CREATE TABLE folders (
+    folder_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    folder_uuid VARCHAR(36) UNIQUE NOT NULL,
+    owner_id BIGINT NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    parent_folder_id BIGINT,
+    path VARCHAR(2000), -- Full path for quick lookups
+    is_deleted BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (owner_id) REFERENCES users(user_id),
+    FOREIGN KEY (parent_folder_id) REFERENCES folders(folder_id),
+    INDEX idx_owner_parent (owner_id, parent_folder_id),
+    INDEX idx_path (path(255))
+);
+
+-- File Versions Table
+CREATE TABLE file_versions (
+    version_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    file_id BIGINT NOT NULL,
+    version_number INT NOT NULL,
+    size BIGINT NOT NULL,
+    storage_path VARCHAR(1000),
+    checksum VARCHAR(64),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by BIGINT NOT NULL,
+    FOREIGN KEY (file_id) REFERENCES files(file_id),
+    FOREIGN KEY (created_by) REFERENCES users(user_id),
+    UNIQUE KEY unique_file_version (file_id, version_number),
+    INDEX idx_file_version (file_id, version_number)
+);
+
+-- Shares Table
+CREATE TABLE shares (
+    share_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    resource_id BIGINT NOT NULL,
+    resource_type ENUM('file', 'folder') NOT NULL,
+    owner_id BIGINT NOT NULL,
+    shared_with_user_id BIGINT, -- NULL for public shares
+    permission ENUM('read', 'write', 'comment') DEFAULT 'read',
+    share_token VARCHAR(64) UNIQUE, -- For public links
+    is_public BOOLEAN DEFAULT FALSE,
+    expires_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (owner_id) REFERENCES users(user_id),
+    FOREIGN KEY (shared_with_user_id) REFERENCES users(user_id),
+    INDEX idx_resource (resource_type, resource_id),
+    INDEX idx_shared_with (shared_with_user_id),
+    INDEX idx_share_token (share_token)
+);
+
+-- Devices Table (for sync)
+CREATE TABLE devices (
+    device_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    device_uuid VARCHAR(36) UNIQUE NOT NULL,
+    device_name VARCHAR(100),
+    device_type ENUM('desktop', 'mobile', 'web'),
+    os VARCHAR(50),
+    last_sync_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id),
+    INDEX idx_user_device (user_id, device_uuid)
+);
+
+-- Sync Events Table (for tracking changes)
+CREATE TABLE sync_events (
+    event_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    resource_id BIGINT NOT NULL,
+    resource_type ENUM('file', 'folder') NOT NULL,
+    event_type ENUM('create', 'update', 'delete', 'move') NOT NULL,
+    event_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    device_id BIGINT,
+    FOREIGN KEY (user_id) REFERENCES users(user_id),
+    INDEX idx_user_timestamp (user_id, event_timestamp),
+    INDEX idx_resource (resource_type, resource_id)
+);
+```
+
+### NoSQL Database (Document Metadata - MongoDB/DynamoDB)
+
+```javascript
+// File Chunks Collection (for large file uploads)
+{
+    _id: ObjectId,
+    file_id: "file_456",
+    chunk_number: 1,
+    chunk_size: 5242880,
+    storage_path: "s3://bucket/chunks/file_456_chunk_1",
+    checksum: "abc123...",
+    uploaded_at: ISODate("2024-01-01T10:00:00Z"),
+    status: "uploaded" // pending, uploaded, verified
+}
+
+// Activity Log Collection
+{
+    _id: ObjectId,
+    user_id: "user_123",
+    action: "file_upload",
+    resource_id: "file_456",
+    resource_type: "file",
+    timestamp: ISODate("2024-01-01T10:00:00Z"),
+    ip_address: "192.168.1.1",
+    device_id: "device_789",
+    metadata: {
+        file_name: "document.pdf",
+        file_size: 2048576
+    }
+}
+
+// Search Index Document (Elasticsearch)
+{
+    file_id: "file_456",
+    name: "document.pdf",
+    content: "extracted text content...",
+    owner: "user_123",
+    tags: ["project", "documentation"],
+    created_at: "2024-01-01T10:00:00Z",
+    modified_at: "2024-01-01T12:00:00Z",
+    path: "/Projects/document.pdf",
+    mime_type: "application/pdf",
+    size: 2048576
+}
+```
+
+### Cache Schema (Redis)
 
 ```
-Downtime allowed per year:
-- 365 days × 24 hours × 60 min × (1 - 0.9999)
-- = 52.56 minutes/year
-- ≈ 4.38 minutes/month
+// User Session Cache
+Key: session:{session_id}
+Value: {
+    user_id: "user_123",
+    email: "user@example.com",
+    expires_at: timestamp
+}
+TTL: 7 days
 
-Component availability in sequence:
-- Load Balancer: 99.99%
-- Application: 99.99%
-- Database: 99.99%
-- Object Storage: 99.99%
+// File Metadata Cache
+Key: file:metadata:{file_id}
+Value: {
+    file_id, name, size, owner_id, created_at, modified_at
+}
+TTL: 1 hour
 
-Total = 0.9999^4 = 99.96%
+// User Quota Cache
+Key: user:quota:{user_id}
+Value: {
+    storage_used: 5000000000,
+    storage_quota: 15000000000
+}
+TTL: 5 minutes
 
-To achieve 99.99%:
-- Need redundancy (active-active, failover)
-- Multiple availability zones
-- Health checks and auto-recovery
+// Recent Files Cache
+Key: user:recent:{user_id}
+Value: [file_id_1, file_id_2, ..., file_id_20]
+TTL: 1 hour
+
+// Sync Cursor Cache
+Key: sync:cursor:{user_id}:{device_id}
+Value: {
+    last_sync_timestamp: timestamp,
+    last_event_id: event_id
+}
+TTL: 24 hours
 ```
 
 ---
@@ -259,1776 +551,1527 @@ To achieve 99.99%:
 ## High-Level Architecture
 
 ```
-                            ┌─────────────┐
-                            │   Users     │
-                            │ (Web/Mobile)│
-                            └──────┬──────┘
-                                   │
-                    ┌──────────────┼──────────────┐
-                    │              │              │
-            ┌───────▼──────┐  ┌────▼────┐  ┌─────▼──────┐
-            │     CDN      │  │   DNS   │  │    CDN     │
-            │ (Downloads)  │  │Route 53 │  │  (Static)  │
-            └──────────────┘  └─────────┘  └────────────┘
-                                   │
-                    ┌──────────────┴──────────────┐
-                    │                             │
-            ┌───────▼──────┐            ┌────────▼─────┐
-            │Load Balancer │            │Load Balancer │
-            │   (Layer 7)  │            │   (Layer 7)  │
-            └───────┬──────┘            └────────┬─────┘
-                    │                            │
-        ┌───────────┴────────┐         ┌─────────┴──────────┐
-        │                    │         │                    │
-   ┌────▼─────┐      ┌──────▼────┐   ┌▼──────┐    ┌──────▼────┐
-   │   API    │      │  Upload   │   │  Sync │    │ Download  │
-   │ Gateway  │      │  Service  │   │Service│    │  Service  │
-   └────┬─────┘      └──────┬────┘   └───┬───┘    └──────┬────┘
-        │                   │            │               │
-        │                   │            │               │
-   ┌────┴─────┬──────┬──────┴────────────┴───────┬───────┴────┐
-   │          │      │                           │            │
-┌──▼──┐  ┌───▼──┐  ┌▼─────┐  ┌────────┐  ┌──────▼──┐  ┌─────▼──┐
-│Auth │  │Meta  │  │Share │  │Search  │  │  Notif  │  │Analytics│
-│ Svc │  │data  │  │ Svc  │  │Service │  │ Service │  │ Service │
-│     │  │ Svc  │  │      │  │ (ES)   │  │         │  │         │
-└─────┘  └───┬──┘  └──────┘  └────────┘  └─────────┘  └────────┘
-             │
-    ┌────────┴─────────┐
-    │                  │
-┌───▼────┐      ┌──────▼──────┐
-│Primary │      │Read Replicas│
-│  DB    │◄────►│ (Postgres)  │
-│(Write) │      │   (Reads)   │
-└───┬────┘      └─────────────┘
-    │
-┌───▼──────────┐
-│Redis Cluster │
-│   (Cache)    │
-└──────────────┘
+                                    [Internet]
+                                        |
+                                        |
+                    +-------------------+-------------------+
+                    |                                       |
+              [CDN - CloudFront]                      [DNS/Route53]
+                    |                                       |
+                    |                                       |
+            +-------+-------+                   +-----------+-----------+
+            |               |                   |                       |
+     [Static Content]  [Download URLs]    [Load Balancer]         [Load Balancer]
+                                                |                       |
+                                                |                       |
+                    +---------------------------+------------------------+
+                    |                           |                       |
+                    |                           |                       |
+          [API Gateway Layer]          [Upload Service]         [Sync Service]
+                    |                           |                       |
+                    |                           |                       |
+    +---------------+---------------+           |                       |
+    |               |               |           |                       |
+[Auth Service] [Metadata Service] [Share Service]                      |
+    |               |               |           |                       |
+    |               |               |           |                       |
+    |       +-------+-------+       |           |                       |
+    |       |               |       |           |                       |
+    |   [Primary DB]   [Read Replicas]         |                       |
+    |   (PostgreSQL)   (PostgreSQL)            |                       |
+    |                                           |                       |
+    +-------------------+                       |                       |
+                        |                       |                       |
+                    [Redis Cache]               |                       |
+                        |                       |                       |
+                        |                       |                       |
+                    +---+-------------------+---+-----------------------+
+                    |                       |                           |
+                    |                       |                           |
+            [Message Queue]         [Block Storage]              [Search Service]
+         (Kafka/SQS/RabbitMQ)        (S3/GCS)                  (Elasticsearch)
+                    |                       |                           |
+                    |                       |                           |
+            +-------+-------+       +-------+-------+                   |
+            |               |       |               |                   |
+      [Async Workers]  [Notification]  [CDN Edge]  [Backup]            |
+        - Thumbnails     Service         Servers     Service            |
+        - Virus Scan                                                    |
+        - Indexing                                                      |
+        - Analytics                                                     |
 
-┌─────────────────────────────────────────────┐
-│         Supporting Infrastructure           │
-├────────────┬──────────────┬─────────────────┤
-│   Object   │   Message    │  Async Workers  │
-│  Storage   │    Queue     │  - Thumbnails   │
-│  (S3/GCS)  │(Kafka/SQS)   │  - Virus Scan   │
-│            │              │  - Indexing     │
-└────────────┴──────────────┴─────────────────┘
-
-┌─────────────────────────────────────────────┐
-│      Monitoring & Observability Layer       │
-│  Logs (ELK) | Metrics (Prometheus/Grafana) │
-│      Distributed Tracing (Jaeger)           │
-└─────────────────────────────────────────────┘
+                    [Monitoring & Logging Layer]
+                        (Prometheus, Grafana, ELK Stack)
 ```
 
 ---
 
-## Core Components Deep Dive
+## Detailed Component Design
 
 ### 1. API Gateway
 
-**Purpose**: Single entry point for all client requests
-
 **Responsibilities:**
-- Request routing to appropriate services
-- Authentication and authorization (JWT tokens)
-- Rate limiting (token bucket algorithm)
-- Request/response transformation
-- SSL termination
+- Request routing
+- Rate limiting
+- Authentication/Authorization
+- Request validation
 - API versioning
+- SSL termination
 
-**Technology Options Analysis**:
+**Technology:** Kong, AWS API Gateway, Nginx
 
-| Technology | Pros | Cons | Use Case |
-|------------|------|------|----------|
-| Kong | Plugins, extensible, open-source | Complex setup, learning curve | **Recommended** for flexibility |
-| AWS API Gateway | Managed, integrated with AWS | Vendor lock-in, limited control | Quick MVP |
-| Nginx | Lightweight, fast, proven | Manual scaling, less features | High-performance needs |
-| Envoy | Modern, service mesh ready | Newer, smaller community | Microservices architecture |
-
-**Decision**: Kong API Gateway
-
-**Why Kong?**
-- **Plugin ecosystem**: 50+ plugins for auth, rate limiting, logging
-- **Scalability**: Proven at 100K+ RPS (Mashape experience)
-- **Flexibility**: Can customize with Lua plugins
-- **Multi-protocol**: REST, gRPC, WebSocket support
-- **Observability**: Built-in metrics and tracing
-
-**Trade-offs Accepted**:
-- ✅ Best features and flexibility
-- ✅ Open-source with enterprise option
-- ✅ Active community
-- ❌ More complex than managed solution
-- ❌ Need to manage infrastructure ourselves
-
-**Configuration Strategy**:
-```
-Rate Limiting:
-├── Free tier: 100 req/min per user
-├── Pro tier: 1,000 req/min per user
-├── Enterprise: 10,000 req/min per user
-└── Burst: 2× sustained rate for 10 seconds
-
-Circuit Breaker:
-├── Failure threshold: 50% error rate
-├── Open duration: 30 seconds
-├── Half-open: Try 1 request
-└── Close when: 10 consecutive successes
-```
+**Key Features:**
+- **Rate Limiting**: Token bucket algorithm per user/IP
+  - Free tier: 100 requests/minute
+  - Premium: 1000 requests/minute
+- **Authentication**: JWT-based with refresh tokens
+- **Circuit Breaker**: Fail fast when services are down
+- **Request Logging**: All requests logged for audit
 
 ---
 
 ### 2. Upload Service
 
-**Purpose**: Handle file uploads efficiently at scale
+**Responsibilities:**
+- Handle file uploads
+- Chunk large files
+- Generate upload URLs
+- Coordinate multipart uploads
 
-#### Challenge: How to upload large files reliably?
+**Design:**
 
-**Problem Analysis**:
+**Chunked Upload Strategy:**
 ```
-Single-shot upload of 5GB file:
-- Network interruption → Complete failure
-- 30-minute upload time
-- No progress indication
-- Cannot resume
-- Server memory bottleneck (buffer entire file)
-```
-
-**Solution Comparison**:
-
-| Approach | Max File Size | Resume | Speed | Complexity | Choice |
-|----------|--------------|---------|-------|------------|--------|
-| Single Upload | 100 MB | ❌ | Slow | Simple | ❌ |
-| Chunked Sequential | 10 GB | ✅ | Slow | Medium | ❌ |
-| Chunked Parallel | 10 GB+ | ✅ | Fast | Medium | ✅ **Recommended** |
-| Streaming | Unlimited | ⚠️ | Medium | High | Special cases |
-
-**Decision**: Chunked Parallel Upload
-
-**Architecture**:
-```
-┌──────────────────────────────────────────────────────────────┐
-│ STEP 1: Initiate Upload                                      │
-└──────────────────────────────────────────────────────────────┘
-Client:
-├── File: vacation.mp4 (500 MB)
-├── Calculate SHA-256: abc123...def
-└── POST /api/v1/files/initiate
-    Body: {
-      filename: "vacation.mp4",
-      size: 524288000,
-      checksum: "abc123...def",
-      parent_folder_id: "folder_456"
-    }
-
-┌──────────────────────────────────────────────────────────────┐
-│ STEP 2: Deduplication Check                                  │
-└──────────────────────────────────────────────────────────────┘
-Upload Service:
-├── Query: SELECT file_id FROM files WHERE checksum = 'abc123...def'
-├── Result: NULL (file doesn't exist)
-└── Decision: Proceed with upload
-
-If file existed:
-├── Create file reference for user
-├── No actual upload needed
-├── Response: "Upload complete" (instant)
-└── Savings: 500 MB bandwidth + storage
-
-┌──────────────────────────────────────────────────────────────┐
-│ STEP 3: Generate Upload Plan                                 │
-└──────────────────────────────────────────────────────────────┘
-Upload Service:
-├── Calculate chunks: 500 MB ÷ 5 MB = 100 chunks
-├── Generate upload_id: "upload_789"
-├── Create presigned S3 URLs (one per chunk):
-│   ├── Chunk 1: PUT s3://bucket/uploads/upload_789/chunk_1?sig=...
-│   ├── Chunk 2: PUT s3://bucket/uploads/upload_789/chunk_2?sig=...
-│   └── ... (100 URLs total)
-├── Store in Redis:
-│   ├── Key: upload:789:metadata
-│   ├── Value: {status: "in_progress", chunks: 100, completed: 0}
-│   └── TTL: 24 hours
-└── Response: {
-      upload_id: "upload_789",
-      chunk_size: 5242880,
-      chunks: 100,
-      urls: [...]
-    }
-
-┌──────────────────────────────────────────────────────────────┐
-│ STEP 4: Upload Chunks (Parallel)                             │
-└──────────────────────────────────────────────────────────────┘
-Client:
-├── Split file into 100 chunks
-├── Upload 10 chunks concurrently (parallel)
-├── For each chunk:
-│   ├── PUT to presigned URL
-│   ├── Verify ETag matches
-│   ├── Notify server: POST /api/v1/files/upload_789/chunks/1
-│   └── Update progress bar
-└── Continue until all 100 chunks uploaded
-
-Why 10 concurrent chunks?
-├── Too few (1-5): Slow, underutilizes bandwidth
-├── Optimal (8-12): Saturates bandwidth, manageable
-└── Too many (20+): Overhead, diminishing returns
-
-┌──────────────────────────────────────────────────────────────┐
-│ STEP 5: Track Progress                                       │
-└──────────────────────────────────────────────────────────────┘
-Upload Service:
-├── Each chunk completion:
-│   ├── HINCRBY upload:789:metadata completed 1
-│   └── HSET upload:789:chunks chunk_1 "completed"
-├── WebSocket: Push progress to client
-│   └── {uploaded: 45, total: 100, percent: 45}
-└── Client shows: "Uploading... 45%"
-
-Failure Handling:
-├── Chunk 42 fails (network timeout)
-├── Client retries chunk 42 (3 attempts)
-├── Success on retry
-└── Continue with remaining chunks
-
-Resume from Failure:
-├── Client crashes at 60% complete
-├── Client restarts
-├── GET /api/v1/files/upload_789/status
-├── Response: {completed_chunks: [1-60], pending: [61-100]}
-└── Resume uploading chunks 61-100 only
-
-┌──────────────────────────────────────────────────────────────┐
-│ STEP 6: Assemble File                                        │
-└──────────────────────────────────────────────────────────────┘
-Client:
-└── POST /api/v1/files/upload_789/complete
-    Body: {checksum: "abc123...def"}
-
-Upload Service:
-├── Verify all 100 chunks received
-├── S3 Multipart Complete API:
-│   └── Combines all chunks into single file
-├── Calculate final checksum
-├── Verify matches client checksum
-└── Atomic operation (all-or-nothing)
-
-If checksum mismatch:
-├── File corrupted during upload
-├── Delete all chunks
-├── Response: 400 Bad Request
-└── Client retries entire upload
-
-┌──────────────────────────────────────────────────────────────┐
-│ STEP 7: Finalize & Trigger Jobs                              │
-└──────────────────────────────────────────────────────────────┘
-Upload Service:
-├── Move file to permanent location:
-│   └── s3://bucket/users/user_123/files/file_789
-├── Update metadata database:
-│   ├── INSERT INTO files (...)
-│   └── UPDATE users SET storage_used += 500MB
-├── Delete temporary chunks & Redis state
-└── Publish to message queue:
-    ├── Event: file_uploaded
-    ├── Payload: {file_id, user_id, size, mime_type}
-    └── Consumers:
-        ├── Thumbnail generator (if image/video)
-        ├── Virus scanner (all files)
-        ├── Content indexer (if document)
-        └── Sync notifier (notify other devices)
-
-Total Latency Breakdown:
-├── Deduplication check: 5ms
-├── Generate URLs: 10ms
-├── Upload chunks (parallel): 30s (depends on bandwidth)
-├── Assemble file: 2s
-├── Update metadata: 50ms
-└── Trigger jobs: 10ms
+1. Client requests upload initiation
+2. Server responds with upload_id and chunk_size (5MB)
+3. Client splits file into chunks
+4. Client uploads chunks in parallel
+5. Server assembles chunks after all uploaded
+6. Server verifies checksum
+7. Server stores file in S3 and updates metadata
 ```
 
-**Key Optimizations**:
+**Deduplication:**
+- Calculate SHA-256 hash on client
+- Check if hash exists in database
+- If exists, create reference instead of uploading
+- Saves storage and bandwidth (copy-on-write)
 
-1. **Direct to S3 Upload**
+**Flow Diagram:**
 ```
-Without presigned URLs:
-  Client → Upload Service → S3
-  - Upload Service buffers data
-  - Memory bottleneck
-  - Double bandwidth usage
-
-With presigned URLs:
-  Client → S3 (direct)
-  - Zero server load
-  - Single network hop
-  - Upload Service only coordinates
-```
-
-2. **Chunk Size Selection: Why 5MB?**
-```
-Too Small (1 MB):
-├── 500 chunks for 500 MB file
-├── High HTTP overhead
-├── More S3 API calls ($$$)
-└── ❌ Not optimal
-
-Optimal (5 MB):
-├── 100 chunks for 500 MB file
-├── Balanced overhead
-├── Good for resume
-└── ✅ **Recommended**
-
-Too Large (50 MB):
-├── Only 10 chunks
-├── Less granular progress
-├── Longer retry on failure
-└── ❌ Not optimal
+Client                Upload Service              Storage Service
+  |                         |                            |
+  |--Upload Request-------->|                            |
+  |<--Upload ID + URLs------|                            |
+  |                         |                            |
+  |--Chunk 1--------------->|                            |
+  |                         |--Store Chunk 1------------>|
+  |<--ACK Chunk 1-----------|<--Success------------------|
+  |                         |                            |
+  |--Chunk N--------------->|                            |
+  |                         |--Store Chunk N------------>|
+  |<--ACK Chunk N-----------|<--Success------------------|
+  |                         |                            |
+  |--Complete Upload------->|                            |
+  |                         |--Assemble File------------>|
+  |                         |--Verify Checksum---------->|
+  |<--Upload Success--------|<--Success------------------|
 ```
 
-3. **Deduplication Savings**
-```
-Scenario: 1000 users upload same 100MB video
-
-Without deduplication:
-└── Store: 1000 × 100 MB = 100 GB
-
-With deduplication:
-├── Store: 100 MB (single copy)
-├── 1000 references to same file
-└── Savings: 99.9 GB (99.9%)
-
-Real-world impact:
-- Popular files (memes, movies, documents): 20-30% dedup rate
-- Backups/system files: 50-70% dedup rate
-- Average: 30% storage savings
-```
+**Key Optimizations:**
+- **Parallel Uploads**: Upload multiple chunks simultaneously
+- **Resumable Uploads**: Track uploaded chunks, resume from failure
+- **Pre-signed URLs**: Direct upload to S3, bypass server
+- **Compression**: Optional client-side compression
+- **Progress Tracking**: WebSocket updates for real-time progress
 
 ---
 
 ### 3. Download Service
-**Purpose**: Efficient file downloads
 
-**Key Features:**
-- **CDN Integration**: Serve files from edge locations
-- **Signed URLs**: Time-limited download links (15 min)
-- **Range Requests**: Support partial downloads (resume)
-- **Permission Validation**: Check access before generating URL
-- **Streaming**: Support for large files
+**Responsibilities:**
+- Handle file downloads
+- Stream large files
+- Generate signed download URLs
+- Support range requests (partial downloads)
+
+**Design:**
+
+**CDN Integration:**
+- Static files served from CDN edge locations
+- Reduced latency for global users
+- Cache popular files
+- Invalidate cache on file updates
+
+**Streaming:**
+```
+1. Client requests download
+2. Server validates permissions
+3. Server generates signed URL (valid 15 minutes)
+4. Client downloads directly from S3/CDN
+5. Support HTTP Range header for resumable downloads
+```
 
 ---
 
 ### 4. Metadata Service
 
-**Purpose**: Manage file and folder metadata at global scale
+**Responsibilities:**
+- Store file/folder metadata
+- Handle CRUD operations on metadata
+- Maintain folder hierarchy
+- Track file versions
 
-#### Challenge: How to store 5 trillion file metadata records?
+**Database Sharding Strategy:**
+- **Shard by user_id**: All user's data on same shard
+- **Consistent Hashing**: Distribute load evenly
+- **Virtual Nodes**: Better distribution, easier rebalancing
 
-**Problem Analysis**:
-```
-Single PostgreSQL instance limits:
-├── Max connections: ~10,000
-├── Max storage: ~16 TB (practical limit)
-├── QPS capacity: ~10,000 reads, ~1,000 writes
-└── Our need: 70,000 QPS, 10 PB metadata
-
-Conclusion: Single database cannot handle the scale
-```
-
-**Database Technology Comparison**:
-
-| Database | Consistency | Queries | Scale | Ops | Choice |
-|----------|-------------|---------|-------|-----|--------|
-| PostgreSQL | Strong (ACID) | Complex (JOINs) | Shard required | Mature | ✅ **Primary** |
-| MySQL | Strong (ACID) | Complex | Shard required | Very mature | Alternative |
-| MongoDB | Eventual | Simple | Auto-shard | Easy | ❌ Eventual consistency issue |
-| Cassandra | Eventual | Limited | Excellent | Complex | ❌ No JOINs |
-| DynamoDB | Eventual | Limited | Excellent | Managed | ❌ No JOINs for folders |
-
-**Decision**: PostgreSQL with Sharding
-
-**Why PostgreSQL over alternatives?**
-
-1. **Strong Consistency Needed**:
-```
-Scenario: User deletes file while another device reads it
-
-With Strong Consistency (PostgreSQL):
-├── Device A: DELETE file
-├── Transaction commits
-├── Device B: SELECT file
-└── File not found (correct)
-
-With Eventual Consistency (NoSQL):
-├── Device A: DELETE file
-├── Device B: SELECT file (different replica)
-├── File still exists (stale read)
-└── Conflict! Device B might re-upload deleted file
-```
-
-2. **Complex Queries Required**:
-```
-Query: "Get all files in folder and subfolders shared with user X"
-
-SELECT f.* 
-FROM files f
-JOIN folders fol ON f.parent_folder_id = fol.folder_id
-JOIN shares s ON (s.resource_id = f.file_id OR s.resource_id = fol.folder_id)
-WHERE s.shared_with_user_id = 'user_X'
-  AND fol.path LIKE '/Documents/%'
-ORDER BY f.modified_at DESC;
-
-This is trivial in SQL, very complex in NoSQL
-```
-
-3. **ACID Transactions Required**:
-```
-Operation: Move file to different folder
-
-BEGIN TRANSACTION;
-  UPDATE files SET parent_folder_id = 'new_folder' WHERE file_id = 'file_123';
-  UPDATE users SET storage_used = storage_used WHERE user_id = 'user_123';
-  INSERT INTO sync_events (...);
-COMMIT;
-
-If any fails, all rollback (atomic)
-NoSQL databases struggle with multi-document transactions
-```
-
-**Sharding Strategy: Why shard by user_id?**
-
-**Alternatives Considered**:
-
-```
-Option 1: Shard by file_id (Hash Sharding)
-Pros:
-├── Even distribution
-└── No hot shards
-
-Cons:
-├── User's files scattered across shards
-├── Cannot query "all files for user" on single shard
-├── Cross-shard JOIN for folder hierarchy
-└── ❌ Rejected
-
-Option 2: Shard by geography
-Pros:
-├── Low latency (data near users)
-└── Regulatory compliance (data residency)
-
-Cons:
-├── Users travel → need cross-region queries
-├── Uneven distribution (US > Antarctica)
-└── ⚠️ Consider for global deployment
-
-Option 3: Shard by user_id (Range Sharding)
-Pros:
-├── All user data on same shard ✓
-├── Single-shard queries for user operations ✓
-├── Folder hierarchy queries efficient ✓
-└── ✅ **Selected**
-
-Cons:
-├── Celebrity users create hot shards
-├── Need rebalancing as users grow
-└── Mitigation: Virtual nodes + monitoring
-```
-
-**Implementation**: Consistent Hashing with Virtual Nodes
-
-```
-Hash Ring with 1000 virtual nodes:
-┌─────────────────────────────────────────────┐
-│         Hash Ring (0 to 2^32)               │
-│                                             │
-│  VN_001 (Shard A)                           │
-│      VN_334 (Shard B)                       │
-│          VN_667 (Shard C)                   │
-│              VN_002 (Shard A)               │
-│    ...                                      │
-│              VN_999 (Shard C)               │
-└─────────────────────────────────────────────┘
-
-User assignment:
-├── hash(user_12345) → 445329847
-├── Find next virtual node: VN_334
-├── VN_334 → Shard B
-└── Store all user_12345 data in Shard B
-
-Benefits:
-├── Adding shard: Only ~1/N data moves
-├── Removing shard: Evenly redistributed
-└── Hot users: Can assign dedicated shard
-```
-
-**Read Replica Strategy**:
-
-```
-┌──────────────────────────────────────────────┐
-│            Shard A (user_id 0-333M)          │
-│                                              │
-│  ┌──────────┐                                │
-│  │ Primary  │ (Writes only)                  │
-│  │ US-EAST  │                                │
-│  └────┬─────┘                                │
-│       │ Async replication                    │
-│       ├──────────┬──────────┐                │
-│       ▼          ▼          ▼                │
-│  ┌────────┐ ┌────────┐ ┌────────┐           │
-│  │Replica1│ │Replica2│ │Replica3│ (Reads)   │
-│  │US-WEST │ │EU-WEST │ │AP-SE   │           │
-│  └────────┘ └────────┘ └────────┘           │
-└──────────────────────────────────────────────┘
-
-Read distribution:
-├── 80% reads go to replicas (distributed)
-├── 20% writes go to primary
-└── Replication lag: <100ms (acceptable)
-
-Failover on primary failure:
-├── Promote Replica1 to primary (<30s)
-├── Reconfigure replication topology
-└── Resume operations
-```
-
-**Caching Strategy**: Multi-Layer
-
-```
-L1: Application Cache (In-Memory)
-├── Store: Recently accessed file metadata
-├── Size: 1 GB per API gateway instance
-├── TTL: 5 minutes
-├── Hit rate: 40%
-└── Latency: 0.1ms
-
-L2: Redis Cluster
-├── Store: Hot file metadata, user quotas
-├── Size: 100 GB total
-├── TTL: 1 hour (metadata), 5 min (quotas)
-├── Hit rate: 90% (of L1 misses)
-└── Latency: 1ms
-
-L3: Database
-├── Store: All metadata (source of truth)
-├── Size: 10 PB (5T files × 1KB × 2 for indexes)
-├── Hit rate: 10% (cache misses)
-└── Latency: 10-50ms
-
-Combined Hit Rate = 40% + (60% × 90%) = 94%
-Average Latency = (0.4 × 0.1ms) + (0.54 × 1ms) + (0.06 × 30ms) = 2.4ms
-```
-
-**Cache Invalidation Strategy**:
-
-```
-Problem: File metadata updated, caches become stale
-
-Solutions Compared:
-
-Option 1: Write-Through Cache
-└── Update cache + database simultaneously
-    ├── Pros: Always consistent
-    └── Cons: Complex, all writes slower
-
-Option 2: Cache Invalidation on Write
-└── Delete cache key on update
-    ├── Pros: Simple, cache always fresh on next read
-    └── Cons: Next read slower (cache miss)
-    ✅ **Selected**
-
-Option 3: TTL-based Expiration
-└── Let cache expire naturally
-    ├── Pros: Zero overhead
-    └── Cons: Stale data for TTL duration
-    ⚠️ Use with invalidation
-
-Implementation:
-├── On file update:
-│   ├── UPDATE database
-│   ├── DEL cache key in Redis
-│   └── Publish event to invalidate L1 cache
-├── Next read:
-│   ├── Cache miss
-│   ├── Query database
-│   └── Populate cache
-```
-
-**Quota Enforcement**:
-
-```
-Challenge: Prevent storage quota exceeded
-
-Naive approach (doesn't work):
-GET user quota → Check limit → Upload file → Update quota
-Problem: Race condition if concurrent uploads
-
-Solution: Atomic check-and-reserve
-├── Use database transaction:
-│   BEGIN;
-│     SELECT storage_used, storage_quota FROM users WHERE user_id = X FOR UPDATE;
-│     -- Row locked, no other transaction can modify
-│     IF storage_used + file_size <= storage_quota THEN
-│       UPDATE users SET storage_used = storage_used + file_size;
-│       -- Reserve space
-│       COMMIT;
-│     ELSE
-│       ROLLBACK;
-│       RETURN 'Quota exceeded';
-│     END IF;
-│   COMMIT;
-
-Alternative: Pessimistic locking ensures atomicity
-```
+**Caching Strategy:**
+- **Cache-Aside Pattern**:
+  1. Check cache for metadata
+  2. If miss, query database
+  3. Store in cache for future requests
+- **TTL**: 1 hour for file metadata, 5 minutes for quota
+- **Cache Invalidation**: On updates, delete cache key
 
 ---
 
 ### 5. Synchronization Service
 
-**Purpose**: Keep files in sync across devices in real-time
+**Responsibilities:**
+- Real-time sync across devices
+- Detect and resolve conflicts
+- Maintain sync state per device
+- Push notifications for changes
 
-#### Challenge: How to sync files across billions of devices in real-time?
+**Design:**
 
-**Problem Statement**:
+**Change Detection:**
+- Event-driven architecture using message queue
+- Each file operation publishes event
+- Sync service consumes events and notifies devices
+
+**Long Polling / WebSocket:**
 ```
-Scenario: User has 4 devices
-- MacBook (editing document)
-- iPhone (wants to view)
-- iPad (offline)
-- Work PC (wants to edit)
-
-Requirements:
-├── MacBook saves → iPhone sees update in <5 seconds
-├── iPad offline → Syncs when online
-├── Work PC edits same file → Conflict resolution
-└── Scale: 200M users × 3 devices = 600M active connections
-```
-
-**Synchronization Approach Comparison**:
-
-| Approach | Latency | Scale | Offline | Conflicts | Bandwidth | Choice |
-|----------|---------|-------|---------|-----------|-----------|--------|
-| Polling (5s) | 5s avg | ✓ | ✓ | Manual | High | ❌ Outdated |
-| Long Polling | 1-5s | ✓✓ | ✓ | Manual | Medium | ⚠️ Fallback |
-| WebSocket | <1s | ✓✓✓ | ✓ | Auto | Low | ✅ **Primary** |
-| Server-Sent Events | <1s | ✓✓ | ✓ | Auto | Low | ⚠️ Alternative |
-
-**Decision**: WebSocket with Long Polling fallback
-
-**Why WebSocket?**
-
-1. **Real-Time Bidirectional Communication**
-```
-Polling (old way):
-  Every 5 seconds:
-    Client → Server: "Any changes?"
-    Server → Client: "No" (99% of the time)
-  
-  Waste: 99% of requests return "no changes"
-  Latency: Average 2.5 seconds to detect change
-
-WebSocket (new way):
-  One persistent connection
-  Server pushes when change occurs
-  
-  Efficiency: 100× less network traffic
-  Latency: Milliseconds to detect change
+Client connects --> Server holds connection --> 
+Event occurs --> Server pushes event --> 
+Client processes --> Client reconnects
 ```
 
-2. **Scalability Analysis**
+**Conflict Resolution Strategy:**
 ```
-Polling approach:
-├── 200M users × 12 polls/min = 2.4B requests/min = 40M RPS
-├── Each poll: Network roundtrip, server processing
-└── Cost: Extremely high server load
+1. Last-Write-Wins (LWW):
+   - Use timestamp + device_id as tiebreaker
+   - Simpler but may lose data
 
-WebSocket approach:
-├── 200M persistent connections
-├── Each connection idle most of the time (epoll)
-├── One server handles 100K connections (C10K problem solved)
-└── Need: 2,000 servers for connections
-    (Much better than 400,000 servers for polling)
-```
+2. Version Vector:
+   - Track version per device
+   - Detect conflicts when vectors diverge
+   - Create conflict copy, let user resolve
 
-3. **Battery Efficiency (Mobile)**
-```
-Polling on mobile:
-├── Wake up every 5 seconds
-├── Establish TCP connection
-├── Send HTTP request
-└── Battery drain: Significant
-
-WebSocket:
-├── Single persistent connection
-├── Server pushes data
-├── No repeated wake-ups
-└── Battery drain: Minimal
-
-For Mobile: Use native push notifications (APNs/FCM)
+3. Operational Transform:
+   - For collaborative editing
+   - Transform operations to maintain consistency
 ```
 
-**Architecture in Detail**:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ SYNC SCENARIO: User edits file on MacBook                       │
-└─────────────────────────────────────────────────────────────────┘
-
-Step 1: Detect Local Change (MacBook)
-┌──────────────────────────────────────────┐
-│ File System Watcher (inotify/FSEvents)  │
-│  - Monitors: ~/Drive directory           │
-│  - Detects: file.txt modified            │
-│  - Debounce: Wait 1s for more changes    │
-└──────────────────────────────────────────┘
-         ↓
-Step 2: Calculate Delta
-┌──────────────────────────────────────────┐
-│ Sync Client                              │
-│  - Get file's last sync version          │
-│  - Calculate diff (rsync algorithm)      │
-│  - Compression: gzip the diff            │
-│  - Result: 500 KB → 50 KB (90% smaller)  │
-└──────────────────────────────────────────┘
-         ↓
-Step 3: Upload Change
-┌──────────────────────────────────────────┐
-│ POST /api/v1/sync/upload                 │
-│ Body: {                                  │
-│   file_id: "file_123",                   │
-│   device_id: "device_mac",               │
-│   version: 42,                           │
-│   delta: <compressed_binary>,            │
-│   checksum: "xyz789"                     │
-│ }                                        │
-└──────────────────────────────────────────┘
-         ↓
-Step 4: Store & Version
-┌──────────────────────────────────────────┐
-│ Upload Service                           │
-│  - Store delta in S3                     │
-│  - Update metadata:                      │
-│    UPDATE files                          │
-│    SET version = 43,                     │
-│        modified_at = NOW()               │
-│    WHERE file_id = 'file_123'            │
-└──────────────────────────────────────────┘
-         ↓
-Step 5: Publish Sync Event
-┌──────────────────────────────────────────┐
-│ Message Queue (Kafka)                    │
-│ Topic: file_changes                      │
-│ Event: {                                 │
-│   type: "file_modified",                 │
-│   file_id: "file_123",                   │
-│   user_id: "user_456",                   │
-│   version: 43,                           │
-│   device_id: "device_mac",               │
-│   timestamp: 1640995200                  │
-│ }                                        │
-└──────────────────────────────────────────┘
-         ↓
-Step 6: Sync Service Processes Event
-┌──────────────────────────────────────────┐
-│ Sync Service Consumer                    │
-│  - Read from Kafka                       │
-│  - Query: Get all devices for user_456   │
-│  - Filter: Exclude device_mac (originator)│
-│  - Result: [device_iphone, device_ipad,  │
-│             device_workpc]               │
-└──────────────────────────────────────────┘
-         ↓
-Step 7: Notify Devices
-┌──────────────────────────────────────────┐
-│ Device iPhone (WebSocket - Active)      │
-│  - Connection alive                      │
-│  - Push: {file_id, version, delta_url}   │
-│  - Latency: 50ms                         │
-└──────────────────────────────────────────┘
-
-┌──────────────────────────────────────────┐
-│ Device iPad (Offline)                    │
-│  - No active connection                  │
-│  - Store in pending_sync queue           │
-│  - Deliver when device comes online      │
-└──────────────────────────────────────────┘
-
-┌──────────────────────────────────────────┐
-│ Device WorkPC (WebSocket - Active)       │
-│  - Currently editing same file!          │
-│  - Conflict detected!                    │
-│  - Handle conflict resolution            │
-└──────────────────────────────────────────┘
-         ↓
-Step 8: Apply Changes
-┌──────────────────────────────────────────┐
-│ iPhone Sync Client                       │
-│  - Download delta from URL               │
-│  - Apply patch to local file             │
-│  - Verify checksum                       │
-│  - Update local version to 43            │
-│  - Notify user: "file.txt updated"       │
-└──────────────────────────────────────────┘
-```
-
-**Conflict Resolution: The Hard Problem**
-
-```
-CONFLICT SCENARIO:
-Time 10:00:00 - Both devices start with file version 42
-Time 10:00:30 - MacBook saves "Hello World" (version 43)
-Time 10:00:31 - WorkPC saves "Goodbye World" (version 43)
-
-Both think they're at version 43!
-
-┌──────────────────────────────────────────────────────────────┐
-│ Conflict Detection Algorithm                                 │
-└──────────────────────────────────────────────────────────────┘
-
-Server receives MacBook update:
-├── Current server version: 42
-├── MacBook claims base version: 42 ✓
-├── No conflict
-└── Accept, increment to version 43
-
-Server receives WorkPC update (1 second later):
-├── Current server version: 43 (MacBook just updated)
-├── WorkPC claims base version: 42 ✗
-├── CONFLICT DETECTED!
-└── Need resolution strategy
-```
-
-**Conflict Resolution Strategies Compared**:
-
-```
-Strategy 1: Last-Write-Wins (LWW)
-├── Compare timestamps
-├── MacBook: 10:00:30
-├── WorkPC: 10:00:31 → Winner
-├── WorkPC version becomes version 44
-├── MacBook version discarded
-└── Problem: Data loss! (MacBook's edits lost)
-
-Strategy 2: Merge Attempts (Operational Transform)
-├── Analyze both edits
-├── Try to merge intelligently
-├── "Hello World" + "Goodbye World" = ???
-└── Problem: Very complex, doesn't always work
-
-Strategy 3: Last-Write-Wins + Conflict Copy ✅
-├── WorkPC version becomes version 44 (latest timestamp)
-├── Save MacBook version as conflict copy:
-│   "file (conflicted copy from MacBook 10:00:30).txt"
-├── Notify user on both devices
-└── User manually resolves
-    Pros: No data loss, simple, always works
-    Cons: Manual intervention needed
-```
-
-**Implementation of LWW + Conflict Copy**:
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│ Conflict Resolution Flow                                      │
-└──────────────────────────────────────────────────────────────┘
-
-Server detects conflict:
-├── Base version: 42
-├── Current version: 43 (MacBook)
-├── Incoming version: 43 (WorkPC claims 42 base)
-└── Timestamp comparison:
-    ├── MacBook: 10:00:30
-    └── WorkPC: 10:00:31 (winner)
-
-Resolution:
-├── Accept WorkPC as version 44
-├── Create conflict file for MacBook:
-│   ├── Name: "file (MacBook 10:00:30 conflicted).txt"
-│   ├── Content: MacBook's version
-│   └── Metadata: marked as conflict
-├── INSERT INTO files (conflict file)
-├── Publish sync events:
-│   ├── MacBook: Download conflict file
-│   └── WorkPC: Download winning version
-└── Notify both users:
-    "Conflicted copy created"
-
-User Experience:
-MacBook sees:
-├── file.txt (WorkPC version)
-├── file (MacBook 10:00:30 conflicted).txt (their version)
-└── Notification: "Conflict detected, review changes"
-
-WorkPC sees:
-├── file.txt (their version, now official)
-├── file (MacBook 10:00:30 conflicted).txt (other version)
-└── Notification: "Another device edited simultaneously"
-```
-
-**WebSocket Connection Management**:
-
-```
-Challenge: Maintain 600M WebSocket connections
-
-Solution: Connection Pooling + Load Distribution
-
-Architecture:
-┌────────────────────────────────────────────────────┐
-│ Sync Service Cluster                               │
-│                                                    │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐       │
-│  │ Sync Srv │  │ Sync Srv │  │ Sync Srv │ ...   │
-│  │    #1    │  │    #2    │  │    #3    │       │
-│  │          │  │          │  │          │       │
-│  │ 100K WS  │  │ 100K WS  │  │ 100K WS  │       │
-│  │ conns    │  │ conns    │  │ conns    │       │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘       │
-│       │             │             │               │
-│       └─────────────┴─────────────┘               │
-│                     │                             │
-│            Subscribe to Kafka                     │
-│         Topic: file_changes.user_456              │
-└────────────────────────────────────────────────────┘
-
-Distribution Strategy:
-├── Each server: 100,000 connections
-├── Total servers: 600M ÷ 100K = 6,000 servers
-├── Load balancer: Consistent hashing by user_id
-└── Benefit: All user's devices on same server
-    (Easier to broadcast changes)
-
-Connection stickiness:
-├── user_456 → Always routes to Sync Server #42
-├── All user_456's devices on same server
-└── Broadcast to 3-5 devices instead of searching 6000 servers
-
-Cost optimization:
-├── WebSocket keep-alive: 30 seconds
-├── Idle connections use ~4 KB memory
-├── 100K connections = 400 MB memory
-└── Acceptable on modern servers (128 GB RAM)
-```
-
-**Fallback to Long Polling**:
-
-```
-Why need fallback?
-
-WebSocket failures:
-├── Corporate firewalls block WS
-├── Proxy servers don't support WS
-├── Old browsers (IE 9)
-└── Mobile apps occasionally
-
-Long Polling mechanism:
-┌────────────────────────────────────────┐
-│ 1. Client: GET /sync/poll?cursor=123  │
-│    Server: Hold connection (60s)       │
-├────────────────────────────────────────┤
-│ 2. If change occurs → Return immediately│
-│    If 60s timeout → Return "no changes"│
-├────────────────────────────────────────┤
-│ 3. Client immediately reconnects        │
-│    (Keeps connection quasi-persistent) │
-└────────────────────────────────────────┘
-
-Comparison:
-├── WebSocket: 1 connection, push messages
-├── Long Poll: Reconnect every 60s, pull messages
-└── WebSocket preferred, Long Poll acceptable fallback
-```
-
-**Sync Protocol Design**:
-
-```
-Delta Sync vs Full Sync:
-
-Small change (edited 1 line in 10 MB document):
-
-Full Sync:
-├── Download entire 10 MB file
-├── Bandwidth: 10 MB
-└── Time: 10 seconds
-
-Delta Sync:
-├── Download only changed bytes
-├── Bandwidth: 5 KB (0.05%)
-├── Time: 50ms (200× faster)
-└── ✅ **Use for files < 100 MB**
-
-Algorithm: rsync-like binary diff
-├── Divide file into blocks (4 KB each)
-├── Calculate rolling checksum per block
-├── Compare checksums
-├── Transfer only changed blocks
-└── Reconstruct file from blocks + deltas
-
-When to use Full Sync:
-├── New file (no previous version)
-├── File completely rewritten
-├── Delta larger than original (rare)
-└── First sync for device
-```
-
-**Sync State Management**:
-
-```
-Per-Device State Tracking:
-
-Redis storage:
-Key: sync:state:user_456:device_iphone
-Value: {
-  last_sync_timestamp: 1640995200,
-  last_event_id: "event_789",
-  pending_downloads: ["file_123", "file_456"],
-  pending_uploads: [],
-  sync_status: "synced"
+**Implementation:**
+```javascript
+// Sync Algorithm (Simplified)
+function syncChanges(user_id, device_id, last_sync_timestamp) {
+    // Get all events since last sync
+    const events = getEventsFromQueue(user_id, last_sync_timestamp);
+    
+    // Filter events not from current device
+    const relevantEvents = events.filter(e => e.device_id !== device_id);
+    
+    // Group by file/folder
+    const changes = groupEventsByResource(relevantEvents);
+    
+    // Detect conflicts
+    const conflicts = detectConflicts(changes, device_id);
+    
+    return {
+        changes: changes,
+        conflicts: conflicts,
+        new_sync_timestamp: Date.now()
+    };
 }
-
-Sync cursor:
-├── Tracks last successfully processed event
-├── On reconnect: Send all events after cursor
-├── Ensures no events missed
-└── Even if device offline for days
-```
-
-**Offline Support**:
-
-```
-iPad goes offline for 6 hours:
-
-During offline:
-├── Local changes queued (SQLite queue)
-├── 10 files edited
-├── 5 files created
-└── Queue stored persistently
-
-When online:
-┌──────────────────────────────────────────┐
-│ 1. Reconnect to Sync Service             │
-│    GET /sync/changes?cursor=last_event   │
-└──────────────────────────────────────────┘
-         ↓
-┌──────────────────────────────────────────┐
-│ 2. Download Remote Changes                │
-│    - 15 files changed by other devices   │
-│    - Download deltas                      │
-│    - Apply to local files                 │
-└──────────────────────────────────────────┘
-         ↓
-┌──────────────────────────────────────────┐
-│ 3. Upload Local Changes                   │
-│    - 10 edited files → Check conflicts   │
-│    - 5 new files → Upload                 │
-│    - 2 conflicts detected → Create copies │
-└──────────────────────────────────────────┘
-         ↓
-┌──────────────────────────────────────────┐
-│ 4. Resolve Conflicts                      │
-│    - file.txt has conflict               │
-│    - Create: file (iPad conflicted).txt  │
-│    - Notify user                          │
-└──────────────────────────────────────────┘
-
-Conflict Detection:
-├── Remote version: 44 (edited at 10:05)
-├── Local version: 43 (edited at 10:03 while offline)
-├── Both diverged from version 42
-└── CONFLICT! (cannot auto-merge)
-```
-
-**Connection Recovery**:
-
-```
-Challenge: WebSocket connections drop frequently
-
-Causes:
-├── Network switches (WiFi → Cellular)
-├── Network congestion
-├── Server restarts
-├── Load balancer timeout
-└── Laptop sleep/wake
-
-Recovery Strategy:
-
-Detection:
-├── Client: Heartbeat every 30s
-├── Server: Heartbeat every 30s
-├── No heartbeat for 60s → Connection dead
-└── Reconnect immediately
-
-Reconnection:
-├── Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s (max)
-├── Include cursor in reconnect request
-├── Server sends missed events
-└── Resume normal operation
-
-State preservation:
-├── Server: Keep connection state for 5 minutes after disconnect
-├── Client: Keep pending changes in queue
-└── No data loss even with frequent reconnects
-```
-
-**Bandwidth Optimization**:
-
-```
-Smart Sync Features:
-
-1. Selective Sync:
-   User marks folders:
-   ├── "Always available offline" → Full sync
-   ├── "Available on demand" → Metadata only
-   └── "Online only" → No local copy
-   
-   Bandwidth savings: 50-70% for typical user
-
-2. Sync Scheduling:
-   Mobile devices:
-   ├── WiFi: Sync immediately
-   ├── Cellular: Sync metadata only
-   ├── Low battery: Pause sync
-   └── Charging + WiFi: Full sync
-   
-   Battery & data plan friendly
-
-3. Compression:
-   ├── Text files: gzip (70% savings)
-   ├── Images: Already compressed (skip)
-   ├── Videos: Already compressed (skip)
-   └── Applied automatically per file type
-
-4. Throttling:
-   ├── Detect rapid changes (save every second)
-   ├── Debounce: Wait 5 seconds for more changes
-   ├── Batch upload: Send one delta with all changes
-   └── Reduces sync events by 80%
 ```
 
 ---
 
 ### 6. Sharing Service
-**Purpose**: Manage file/folder sharing
 
-**Features:**
-- **User Sharing**: Share with specific users
-- **Public Links**: Generate shareable URLs
-- **Permission Levels**: Owner, Editor, Commenter, Viewer
-- **Expiration**: Time-limited shares
-- **Access Logs**: Track who accessed what
+**Responsibilities:**
+- Manage file/folder sharing
+- Generate public links
+- Enforce permissions
+- Track access logs
 
-**Security:**
-- Cryptographically secure tokens
-- Store hashed tokens (bcrypt)
-- Password protection for public links
-- Audit trail for all access
+**Permission Model:**
+```
+Permission Levels:
+1. Owner: Full control (read, write, delete, share)
+2. Editor: Read, write, comment
+3. Commenter: Read, comment
+4. Viewer: Read only
+
+Inheritance:
+- Folder permissions cascade to children
+- Explicit permissions override inherited
+```
+
+**Public Link Security:**
+- Generate cryptographically secure random tokens
+- Store hash of token (bcrypt)
+- Support expiration time
+- Support password protection
+- Track access count
 
 ---
 
 ### 7. Search Service
-**Purpose**: Fast file search across content and metadata
 
-**Technology**: Elasticsearch
+**Responsibilities:**
+- Index file content and metadata
+- Provide fast search results
+- Support filters and facets
+- Rank results by relevance
 
-**Search Capabilities:**
-- Full-text search in document content
-- Metadata search (name, type, owner, date)
-- Filters and facets
-- Relevance ranking
+**Technology:** Elasticsearch / Apache Solr
 
 **Indexing Strategy:**
-- Asynchronous indexing via background workers
-- Text extraction from PDFs, Office docs
-- OCR for images (if enabled)
-- Real-time index updates
+```
+1. Async Indexing:
+   - File upload triggers indexing job
+   - Worker extracts text from documents
+   - Worker indexes in Elasticsearch
+
+2. Index Structure:
+   {
+       "file_id": "file_456",
+       "name": "document.pdf",
+       "content": "extracted text...",
+       "owner": "user_123",
+       "created_at": "2024-01-01",
+       "tags": ["project", "doc"],
+       "path": "/Projects/doc.pdf",
+       "size": 2048576
+   }
+
+3. Text Extraction:
+   - PDF: Apache Tika
+   - Images: OCR (Tesseract)
+   - Office Docs: Apache POI
+```
+
+**Search Query:**
+```
+GET /files/_search
+{
+    "query": {
+        "bool": {
+            "must": [
+                {"match": {"content": "project documentation"}},
+                {"term": {"owner": "user_123"}}
+            ],
+            "filter": [
+                {"range": {"created_at": {"gte": "2024-01-01"}}},
+                {"term": {"mime_type": "application/pdf"}}
+            ]
+        }
+    },
+    "sort": [
+        {"_score": "desc"},
+        {"created_at": "desc"}
+    ]
+}
+```
 
 ---
 
-### 8. Storage Layer (Object Storage)
-**Purpose**: Store actual file data
+### 8. Storage Layer (S3/GCS)
 
-**Technology**: AWS S3 / Google Cloud Storage
+**Responsibilities:**
+- Store actual file data
+- Ensure data durability
+- Enable versioning
+- Support lifecycle policies
 
-**Features:**
-- **Versioning**: Keep multiple versions of files
-- **Lifecycle Policies**: Auto-tier to cold storage
-- **Cross-Region Replication**: For disaster recovery
-- **Encryption**: At rest (AES-256)
+**Design Decisions:**
 
 **Storage Classes:**
-- **Hot**: Frequently accessed (S3 Standard)
-- **Warm**: Infrequent access (S3 IA)
-- **Cold**: Archive (S3 Glacier)
+- **Hot Storage**: Frequently accessed (S3 Standard)
+- **Warm Storage**: Infrequently accessed (S3 IA)
+- **Cold Storage**: Archive (S3 Glacier)
+- **Auto-tiering**: Move based on access patterns
+
+**Bucket Organization:**
+```
+Bucket Structure:
+/user_data/
+    /{user_id_prefix}/   # First 4 chars of user_id for sharding
+        /{user_id}/
+            /files/
+                /{file_id}
+            /versions/
+                /{file_id}/
+                    /v1
+                    /v2
+            /thumbnails/
+                /{file_id}_thumb.jpg
+```
+
+**Replication:**
+- **Cross-Region Replication**: For disaster recovery
+- **Multi-Region**: Serve global users faster
+- **3x Replication**: Standard across regions
+
+**Lifecycle Policies:**
+```
+Rules:
+1. Move to IA after 30 days of no access
+2. Move to Glacier after 90 days
+3. Delete file versions older than 1 year (except latest)
+4. Delete deleted files permanently after 30 days (trash)
+```
 
 ---
 
-### 9. Message Queue
-**Purpose**: Asynchronous communication between services
+### 9. Notification Service
 
-**Technology**: Apache Kafka, RabbitMQ, AWS SQS
+**Responsibilities:**
+- Send real-time notifications
+- Email notifications
+- Push notifications (mobile)
+- In-app notifications
 
-**Event Types:**
-- File upload complete → Trigger virus scan, thumbnail generation
-- File modified → Trigger sync notification
-- File shared → Send notification
-- File accessed → Update analytics
+**Events to Notify:**
+- File shared with user
+- Comment on file
+- File upload complete
+- Storage quota exceeded
+- Security alerts
 
-**Benefits:**
-- Decouple services
-- Handle traffic spikes
-- Guarantee delivery
-- Replay capability
+**Technology:** 
+- WebSocket / Server-Sent Events (SSE)
+- Firebase Cloud Messaging (FCM) for mobile
+- SendGrid / Amazon SES for email
 
 ---
 
 ### 10. Async Workers
-**Purpose**: Process background jobs
+
+**Responsibilities:**
+- Process background jobs
+- Generate thumbnails
+- Scan for viruses
+- Index documents
+- Send emails
+- Generate analytics
+
+**Job Queue:**
+- **Technology**: Apache Kafka, RabbitMQ, AWS SQS
+- **Priority Queues**: Critical jobs (security) processed first
+- **Retry Logic**: Exponential backoff
+- **Dead Letter Queue**: Failed jobs after max retries
 
 **Worker Types:**
-1. **Thumbnail Generator**: Create image/video previews
-2. **Virus Scanner**: Scan files with ClamAV
-3. **Content Indexer**: Extract text, update search index
-4. **Analytics Processor**: Track usage metrics
-5. **Notification Sender**: Email/push notifications
 
-**Processing:**
-- Pull jobs from message queue
-- Process independently
-- Retry with exponential backoff
-- Dead letter queue for failed jobs
+1. **Thumbnail Generator:**
+   - For images and videos
+   - Multiple sizes (small, medium, large)
+   - Store in separate location
 
----
+2. **Virus Scanner:**
+   - Scan uploaded files with ClamAV
+   - Quarantine suspicious files
+   - Notify user
 
-### 11. Notification Service
-**Purpose**: Real-time notifications to users
+3. **Content Indexer:**
+   - Extract text from documents
+   - Index in Elasticsearch
+   - Update search index
 
-**Channels:**
-- **WebSocket/SSE**: Real-time web notifications
-- **Push Notifications**: Mobile (FCM/APNS)
-- **Email**: Via SendGrid/SES
-- **In-App**: Notification center
-
-**Events:**
-- File shared with you
-- Comment on your file
-- Upload complete
-- Storage quota warning
-
----
-
-### 12. Cache Layer (Redis)
-**Purpose**: Reduce database load, improve performance
-
-**Cached Data:**
-- User sessions (7 day TTL)
-- File metadata (1 hour TTL)
-- User quotas (5 min TTL)
-- Recent files list (1 hour TTL)
-- Sync cursors (24 hour TTL)
-
-**Strategy:**
-- Cache-aside pattern
-- Write-through for critical data
-- Cache invalidation on updates
+4. **Analytics Processor:**
+   - Track usage metrics
+   - Generate insights
+   - Store in time-series DB
 
 ---
 
 ## Data Flow
 
-### 1. File Upload Flow
+### Upload Flow (Detailed)
 
 ```
 ┌──────────┐
-│  Client  │ 1. Calculate file hash (SHA-256)
-└────┬─────┘    POST /api/v1/files/check-hash
-     │
-     ▼
-┌──────────┐
-│   API    │ 2. Authenticate & validate
-│ Gateway  │
+│  Client  │
 └────┬─────┘
      │
+     │ 1. Calculate file hash (SHA-256)
+     │    POST /api/v1/files/check-hash
+     │    {checksum: "abc123..."}
      ▼
-┌──────────┐
-│ Metadata │ 3. Check if hash exists (deduplication)
-│ Service  │    - If exists: Create reference, done
-└────┬─────┘    - If new: Continue
+┌──────────────┐
+│API Gateway   │◄──────── 2. Authenticate & Validate
+└────┬─────────┘
      │
+     │ 3. Check deduplication
      ▼
-┌──────────┐
-│  Upload  │ 4. Generate upload_id & pre-signed URLs
-│ Service  │    Return to client
-└──────────┘
+┌──────────────┐      ┌─────────────┐
+│Metadata DB   │◄─────│Check hash   │
+└────┬─────────┘      └─────────────┘
      │
+     │ Hash exists? → Create reference, skip upload
+     │ Hash new? → Continue
      ▼
-┌──────────┐
-│  Client  │ 5. Upload chunks in parallel (5MB each)
-└────┬─────┘    Direct to S3 using pre-signed URLs
+┌──────────────┐
+│Upload Service│
+└────┬─────────┘
      │
+     │ 4. Generate upload_id and pre-signed URLs
+     │    for chunks (5MB each)
      ▼
 ┌──────────┐
-│   S3     │ 6. Store chunks
+│  Client  │
 └────┬─────┘
      │
+     │ 5. Upload chunks in parallel (up to 10 concurrent)
+     │    PUT to S3 pre-signed URLs
      ▼
-┌──────────┐
-│  Upload  │ 7. Client signals completion
-│ Service  │    - Verify all chunks received
-└────┬─────┘    - Assemble file
-     │           - Verify checksum
+┌──────────────┐
+│   S3/GCS     │◄──────── Chunks stored
+└────┬─────────┘
+     │
+     │ 6. All chunks uploaded
      ▼
-┌──────────┐
-│ Metadata │ 8. Create file metadata record
-│ Service  │    - Update user quota
-└────┬─────┘    - Store file path
+┌──────────────┐
+│Upload Service│
+└────┬─────────┘
+     │
+     │ 7. Verify all chunks
+     │    Assemble file from chunks
+     │    Calculate final checksum
+     ▼
+┌──────────────┐
+│Metadata DB   │◄──────── 8. Update metadata
+└────┬─────────┘          (file_id, size, path, etc.)
      │
      ▼
+┌──────────────┐
+│Message Queue │◄──────── 9. Publish events:
+└────┬─────────┘          - thumbnail_generate
+     │                    - virus_scan
+     │                    - index_content
+     │                    - sync_notify
+     ▼
+┌──────────────┐
+│Async Workers │◄──────── 10. Process jobs
+└──────────────┘
+```
+
+### Download Flow
+
+```
 ┌──────────┐
-│ Message  │ 9. Publish events:
-│  Queue   │    - thumbnail_generate
-└────┬─────┘    - virus_scan
-     │           - index_content
-     │           - sync_notify
+│  Client  │
+└────┬─────┘
+     │
+     │ 1. Request download
+     │    GET /api/v1/files/{file_id}/download
+     ▼
+┌──────────────┐
+│API Gateway   │◄──────── 2. Authenticate
+└────┬─────────┘
+     │
+     ▼
+┌──────────────┐
+│Share Service │◄──────── 3. Check permissions
+└────┬─────────┘
+     │
+     │ Authorized? → Continue
+     │ Unauthorized? → 403 Forbidden
+     ▼
+┌──────────────┐
+│Metadata DB   │◄──────── 4. Get file metadata
+└────┬─────────┘          (storage_path, size)
+     │
+     ▼
+┌──────────────┐
+│Download Svc  │
+└────┬─────────┘
+     │
+     │ 5. Generate signed URL (15 min expiry)
+     │    302 Redirect or direct URL
      ▼
 ┌──────────┐
-│  Async   │ 10. Workers process jobs
-│ Workers  │
-└──────────┘
+│  Client  │
+└────┬─────┘
+     │
+     │ 6. Download from S3/CDN
+     │    Support Range requests
+     ▼
+┌──────────────┐
+│   CDN/S3     │◄──────── File streamed to client
+└──────────────┘
 ```
 
-### 2. File Download Flow
+### Sync Flow
 
 ```
-Client → API Gateway → Auth Service → Share Service
-   ↓                                        ↓
-   └──────────────────► (Check Permissions)
-                               ↓
-                         Authorized?
-                               ↓
-                        Metadata Service
-                               ↓
-                    (Get file location in S3)
-                               ↓
-                        Download Service
-                               ↓
-                  (Generate signed URL - 15 min)
-                               ↓
-                            Client
-                               ↓
-                    (Download directly from S3/CDN)
+┌──────────────┐
+│Device A      │
+└────┬─────────┘
+     │
+     │ 1. User modifies file.txt
+     │    (create, update, delete)
+     ▼
+┌──────────────┐
+│Local Client  │◄──────── 2. Detect change (file watcher)
+└────┬─────────┘
+     │
+     │ 3. Upload changes
+     │    POST /api/v1/files/update
+     ▼
+┌──────────────┐
+│Upload Service│
+└────┬─────────┘
+     │
+     │ 4. Store file + metadata
+     ▼
+┌──────────────┐      ┌──────────────┐
+│   S3/GCS     │      │Metadata DB   │
+└──────────────┘      └────┬─────────┘
+                           │
+     │ 5. Publish sync event
+     ▼
+┌──────────────┐
+│Message Queue │
+│(Kafka/SQS)   │
+└────┬─────────┘
+     │
+     │ 6. Sync Service consumes event
+     ▼
+┌──────────────┐
+│Sync Service  │
+└────┬─────────┘
+     │
+     │ 7. Identify devices to notify
+     │    (all user's devices except Device A)
+     ▼
+┌──────────────┐      ┌──────────────┐
+│Device B      │      │Device C      │
+│(WebSocket)   │      │(Long Poll)   │
+└────┬─────────┘      └────┬─────────┘
+     │                     │
+     │ 8. Push notification: file.txt updated
+     │                     │
+     ▼                     ▼
+┌──────────────┐      ┌──────────────┐
+│Download file │      │Download file │
+│Apply changes │      │Apply changes │
+└──────────────┘      └──────────────┘
 ```
 
-### 3. Real-Time Sync Flow
+### Sharing Flow
 
 ```
-Device A: User edits file
-     ↓
-Local File System Watcher detects change
-     ↓
-Upload Service: Store new version
-     ↓
-Metadata Service: Update metadata
-     ↓
-Message Queue: Publish sync event
-     ↓
-Sync Service: Consume event
-     ↓
-Identify affected devices (Device B, C, D)
-     ↓
-Push notification via WebSocket/Long Polling
-     ↓
-Device B, C, D: Receive update
-     ↓
-Download new version and apply
+┌──────────┐
+│User A    │
+└────┬─────┘
+     │
+     │ 1. Share file with User B
+     │    POST /api/v1/shares
+     │    {file_id, user_b_id, permission: "read"}
+     ▼
+┌──────────────┐
+│API Gateway   │
+└────┬─────────┘
+     │
+     ▼
+┌──────────────┐
+│Share Service │
+└────┬─────────┘
+     │
+     │ 2. Validate ownership & permissions
+     ▼
+┌──────────────┐
+│Metadata DB   │◄──────── 3. Create share record
+└────┬─────────┘          INSERT INTO shares
+     │
+     │ 4. Publish notification event
+     ▼
+┌──────────────┐
+│Message Queue │
+└────┬─────────┘
+     │
+     │ 5. Notification Service processes
+     ▼
+┌──────────────┐
+│User B        │◄──────── Email: "User A shared file with you"
+└──────────────┘          Push notification (if mobile)
+                          In-app notification
 ```
-
-### 4. File Sharing Flow
-
-```
-User A shares file with User B
-     ↓
-API Gateway → Auth Service
-     ↓
-Share Service:
-  - Validate User A owns file
-  - Create share record in DB
-  - Generate share token
-     ↓
-Message Queue: Publish notification event
-     ↓
-Notification Service:
-  - Send email to User B
-  - Send push notification
-  - Create in-app notification
-     ↓
-User B receives notification
-  - Click link → Download Service
-  - Validate share token
-  - Generate signed URL
-  - Download file
-```
-
----
-
-## Database Design
-
-### Metadata Database (PostgreSQL)
-
-**Core Entities:**
-1. **Users**: user_id, email, storage_quota, storage_used
-2. **Files**: file_id, owner_id, name, size, checksum, parent_folder_id, version
-3. **Folders**: folder_id, owner_id, name, parent_folder_id, path
-4. **File_Versions**: version_id, file_id, version_number, storage_path
-5. **Shares**: share_id, resource_id, owner_id, shared_with_user_id, permission
-6. **Devices**: device_id, user_id, device_name, last_sync_at
-7. **Sync_Events**: event_id, user_id, resource_id, event_type, timestamp
-
-**Key Indexes:**
-- owner_id + parent_folder_id (files/folders)
-- checksum (for deduplication)
-- share_token (for public links)
-- user_id + timestamp (for sync events)
-
-**Sharding Strategy:**
-- Shard by user_id
-- Consistent hashing
-- Virtual nodes for better distribution
-
----
-
-### Document Store (MongoDB/DynamoDB)
-
-**Collections:**
-1. **File_Chunks**: Track chunks during upload
-2. **Activity_Logs**: User actions audit trail
-3. **Analytics_Events**: Usage metrics
-
----
-
-### Search Index (Elasticsearch)
-
-**Document Structure:**
-- file_id, name, content (extracted text)
-- owner, tags, created_at, modified_at
-- path, mime_type, size
-
----
-
-### Cache (Redis)
-
-**Key Patterns:**
-- `session:{session_id}` → User session
-- `file:metadata:{file_id}` → File metadata
-- `user:quota:{user_id}` → Storage usage
-- `user:recent:{user_id}` → Recent files list
-- `sync:cursor:{user_id}:{device_id}` → Sync state
 
 ---
 
 ## Design Decisions & Trade-offs
 
-### 1. Metadata: SQL vs NoSQL
+### 1. **Metadata Storage: SQL vs NoSQL**
 
-**Decision**: PostgreSQL (SQL)
+**Decision**: Use SQL (PostgreSQL) for primary metadata storage
 
-**Reasoning:**
-- Strong consistency needed for ownership, permissions
-- Complex queries (folder hierarchy, shared files)
-- ACID transactions required
-- Mature ecosystem
+**Rationale:**
+- Strong consistency for critical operations (file ownership, permissions)
+- ACID transactions for atomicity (e.g., move file + update parent)
+- Complex queries with JOINs (folder hierarchy, shared files)
+- Mature ecosystem and tooling
 
 **Trade-offs:**
-- ✅ Strong consistency
-- ✅ Relational integrity
-- ✅ Complex queries
-- ❌ Harder horizontal scaling (needs sharding)
+- ✅ Strong consistency guarantees
+- ✅ Relational integrity (foreign keys)
+- ✅ Complex query support
+- ❌ Harder to scale horizontally (requires sharding)
+- ❌ Fixed schema (migrations needed)
+
+**Alternatives Considered:**
+- **NoSQL (DynamoDB/MongoDB)**: Better horizontal scalability but eventual consistency
+- **Hybrid**: SQL for metadata, NoSQL for logs/analytics (chosen for async data)
 
 ---
 
-### 2. Storage: Object Storage (S3/GCS)
+### 2. **File Storage: Block Storage vs Object Storage**
 
-**Decision**: Object Storage
+**Decision**: Use Object Storage (S3/GCS)
 
-**Reasoning:**
-- Designed for petabyte scale
-- Built-in 11 9's durability
-- Cost-effective
-- Versioning support
+**Rationale:**
+- Designed for massive scale (petabytes)
+- Built-in redundancy and durability (11 9's)
+- Cost-effective for large files
 - Global CDN integration
+- Versioning support
 
 **Trade-offs:**
 - ✅ Infinite scalability
-- ✅ High durability
+- ✅ High durability (11 9's)
 - ✅ Low cost per GB
+- ✅ Built-in replication
 - ❌ Higher latency than block storage
+- ❌ Eventual consistency for some operations
+
+**Alternatives Considered:**
+- **Block Storage (EBS)**: Better for databases, but doesn't scale for file storage
+- **HDFS**: Good for big data, but operational complexity
 
 ---
 
-### 3. Consistency Model: Hybrid
+### 3. **Consistency Model: Strong vs Eventual**
 
-**Decision**: Strong for metadata, Eventual for sync
+**Decision**: Hybrid approach
 
-**Reasoning:**
-- Metadata (ownership, permissions) must be consistent
-- Sync can tolerate eventual consistency
-- Best balance of consistency and availability
+**Rationale:**
+- **Strong Consistency** for:
+  - File metadata (ownership, permissions)
+  - User quota enforcement
+  - Critical transactions
+- **Eventual Consistency** for:
+  - File synchronization across devices
+  - Search indices
+  - Analytics and logs
 
 **Trade-offs:**
-- ✅ Guarantees where needed
-- ✅ High availability
-- ❌ More complex implementation
+- ✅ Best of both worlds
+- ✅ Strong guarantees where needed
+- ✅ High availability for non-critical data
+- ❌ Complex to implement
+- ❌ Requires careful design
 
 ---
 
-### 4. Upload: Chunked Multipart
+### 4. **Upload Strategy: Chunked vs Streaming**
 
-**Decision**: 5MB chunks, parallel upload
+**Decision**: Chunked multipart upload
 
-**Reasoning:**
+**Rationale:**
 - Support large files (>5GB)
-- Faster (parallel upload)
-- Resumable after failures
+- Parallel upload for speed
+- Resumable uploads (network failures)
 - Better progress tracking
+- Client can calculate chunk checksums
 
 **Trade-offs:**
-- ✅ Fast for large files
-- ✅ Resumable
-- ✅ Better UX
-- ❌ More complex
+- ✅ Faster for large files (parallel)
+- ✅ Resumable after failures
+- ✅ Better client experience
+- ❌ More complex implementation
+- ❌ Requires chunk assembly
 
 ---
 
-### 5. Deduplication: Client-side hash
+### 5. **Deduplication: Client-side vs Server-side**
 
-**Decision**: Client calculates hash, server verifies
+**Decision**: Client-side hash, server-side verification
 
-**Reasoning:**
-- Save bandwidth (don't upload duplicates)
-- Save storage (single copy)
-- Fast for users
+**Rationale:**
+- Reduce bandwidth (don't upload duplicates)
+- Save storage costs
+- Fast for users (instant "upload")
+- Security: server verifies before trusting
 
 **Trade-offs:**
-- ✅ 30% bandwidth savings
-- ✅ Storage savings
+- ✅ Bandwidth savings (up to 30%)
+- ✅ Storage savings (single copy)
+- ✅ Faster uploads for duplicates
 - ❌ Privacy concerns (hash reveals content)
-- ❌ Reference counting complexity
+- ❌ Complexity in reference counting
 
 ---
 
-### 6. Sync: WebSocket + Push Notifications
+### 6. **Sync: Long Polling vs WebSocket vs Server-Sent Events**
 
-**Decision**: WebSocket for web/desktop, FCM/APNS for mobile
+**Decision**: WebSocket for web/desktop, Push notifications for mobile
 
-**Reasoning:**
-- Real-time updates (low latency)
-- Single persistent connection
-- Battery efficient on mobile
+**Rationale:**
+- Real-time bidirectional communication
+- Low latency (milliseconds)
+- Single connection for multiple updates
+- Battery efficient on mobile with FCM/APNS
 
 **Trade-offs:**
-- ✅ Real-time (milliseconds)
-- ✅ Efficient
-- ❌ Connection management complexity
-- ❌ Firewall issues
+- ✅ Real-time updates
+- ✅ Low latency
+- ✅ Efficient for high-frequency changes
+- ❌ More complex than polling
+- ❌ Requires connection management
+- ❌ Firewall/proxy issues
+
+**Alternatives:**
+- **Long Polling**: Simpler, but higher latency and server load
+- **SSE**: Good for server→client, but not bidirectional
 
 ---
 
-### 7. Sharding: By user_id
+### 7. **Sharding Strategy**
 
-**Decision**: Shard metadata by user_id
+**Decision**: Shard by user_id
 
-**Reasoning:**
-- User's data co-located
-- No cross-shard queries for user operations
-- Simple to implement
+**Rationale:**
+- User's data stays together (query efficiency)
+- Natural data locality
+- Easy to implement
+- Predictable shard key
 
 **Trade-offs:**
-- ✅ Query efficiency
+- ✅ Simple queries (no cross-shard joins)
 - ✅ Data locality
-- ❌ Hot shards (power users)
-- ❌ Rebalancing complexity
+- ✅ Easy to implement
+- ❌ Hot shards if power users exist
+- ❌ Harder to rebalance
+
+**Alternatives:**
+- **Geographic Sharding**: Better for global users, but complex
+- **Hash Sharding**: Better distribution, but loses locality
 
 ---
 
-### 8. Caching: Multi-layer (CDN + Redis + DB)
+### 8. **Caching Strategy**
 
-**Decision**: 3-tier caching
+**Decision**: Multi-layer cache (Redis + CDN)
 
-**Reasoning:**
-- CDN for downloads (edge caching)
-- Redis for metadata (application caching)
-- DB buffer for query results
+**Layers:**
+1. **CDN Cache**: Static files, download URLs (edge locations)
+2. **Redis Cache**: Metadata, session, quota (application layer)
+3. **Database Cache**: Query results (PostgreSQL buffer)
 
 **Trade-offs:**
-- ✅ 80%+ cache hit rate
-- ✅ Reduced DB load
-- ✅ Lower latency
+- ✅ Reduced database load (80%+ cache hit rate)
+- ✅ Lower latency (sub-millisecond)
+- ✅ Better scalability
 - ❌ Cache invalidation complexity
-- ❌ Additional cost
+- ❌ Additional infrastructure cost
 
 ---
 
-### 9. Conflict Resolution: Last-Write-Wins
+### 9. **Conflict Resolution**
 
-**Decision**: LWW with conflict copies
+**Decision**: Last-Write-Wins with conflict copies
 
-**Reasoning:**
+**Rationale:**
 - Simple to implement
 - Works for 99% of cases
+- User has final say
 - Preserves all data
 
 **Flow:**
-1. Detect conflict
-2. Latest timestamp wins
-3. Create conflict copy
-4. User reviews
+```
+1. Detect conflict (file modified on 2 devices)
+2. Keep version with latest timestamp (LWW)
+3. Create "file (conflicted copy from Device A).txt"
+4. Notify user to review
+```
 
-**Trade-offs:**
-- ✅ Simple
-- ✅ No data loss
-- ❌ User intervention needed
+**Alternatives:**
+- **Operational Transform**: Complex, for real-time collaboration
+- **Version Vectors**: More accurate, but complex
+- **Manual Resolution**: Better accuracy, worse UX
 
 ---
 
-### 10. Database Replication: Primary-Replica
+### 10. **Database Replication**
 
-**Decision**: 1 Primary + 3 Read Replicas
+**Decision**: Primary-Replica with read replicas
 
-**Reasoning:**
-- Scale reads (most operations)
-- High availability
-- Geographic distribution
+**Setup:**
+- 1 Primary (writes)
+- 3 Read Replicas (reads)
+- Async replication
+- Failover to replica on primary failure
 
 **Trade-offs:**
-- ✅ Read scalability (3x)
-- ✅ HA
-- ❌ Replication lag
+- ✅ Read scalability (3x capacity)
+- ✅ High availability
+- ✅ Geographic distribution
+- ❌ Replication lag (eventual consistency for reads)
 - ❌ Failover complexity
 
 ---
 
-## Scalability Strategy
+## Advanced Features
 
-### Horizontal Scaling
+### 1. **Collaborative Editing**
 
-**Application Layer:**
-- Stateless services behind load balancers
-- Auto-scaling based on CPU/memory
-- Can add/remove instances dynamically
+**Requirements:**
+- Multiple users edit same document simultaneously
+- See real-time changes
+- No conflicts
 
-**Database Layer:**
-- Shard by user_id
-- Add more shards as needed
-- Read replicas for read scaling
-- Eventually migrate to distributed SQL (CockroachDB, YugabyteDB)
+**Design:**
 
-**Cache Layer:**
-- Redis cluster with consistent hashing
-- Add nodes to handle more load
-- Partition hot keys
+**Operational Transformation (OT):**
+```
+User A types "Hello" at position 0
+User B types "World" at position 0
 
-**Storage Layer:**
-- Object storage scales automatically
-- No manual intervention needed
+Without OT: Conflict
+With OT: Transform operations to maintain intent
+Result: "HelloWorld" or "WorldHello" (depending on order)
+```
 
-### Vertical Scaling (When Needed)
-- Upgrade database instance types
-- More memory for cache
-- Faster disks for database
+**Technology:**
+- WebSocket for real-time communication
+- OT algorithm (Google Docs approach)
+- Conflict-free Replicated Data Type (CRDT) alternative
 
-### Geographic Distribution
-- Multi-region deployment
-- Route users to nearest region
-- Cross-region replication for DR
+**Architecture:**
+```
+┌──────────┐     ┌──────────┐
+│User A    │     │User B    │
+└────┬─────┘     └────┬─────┘
+     │                 │
+     │   WebSocket     │
+     └────────┬────────┘
+              │
+       ┌──────▼──────┐
+       │Collaboration│
+       │   Service   │
+       └──────┬──────┘
+              │
+       ┌──────▼──────┐
+       │   OT Engine │
+       │  (Transform │
+       │  operations)│
+       └──────┬──────┘
+              │
+       ┌──────▼──────┐
+       │   Storage   │
+       └─────────────┘
+```
 
 ---
 
-## Reliability & Availability
+### 2. **Smart Suggestions & AI Features**
 
-### High Availability Strategies
+**Features:**
+- Auto-categorization (tag files)
+- Smart search (semantic search)
+- Duplicate detection
+- Storage optimization suggestions
 
-**1. Redundancy:**
-- Multiple availability zones
-- Load balancers in active-active
-- Database primary-replica setup
-- 3x replication for object storage
+**Implementation:**
+```
+1. ML Model Training:
+   - Train on file metadata
+   - Learn user patterns
+   
+2. Inference:
+   - Run on new uploads
+   - Generate suggestions
+   
+3. Storage:
+   - Store in metadata DB
+   - Cache in Redis
+```
 
-**2. Failover:**
-- Automatic failover for database
-- Health checks for all services
-- Circuit breakers to prevent cascade failures
+---
 
-**3. Graceful Degradation:**
-- Serve stale cache if DB down
-- Disable features if dependencies fail
-- Show user-friendly error messages
+### 3. **Offline Mode**
 
-### Disaster Recovery
+**Requirements:**
+- Access files without internet
+- Sync when online
+- Conflict resolution
+
+**Design:**
+
+**Local Storage:**
+```
+Client maintains local database:
+- SQLite for metadata
+- Local filesystem for files
+- Sync queue for pending operations
+```
+
+**Sync Algorithm:**
+```
+1. Track operations offline (create, update, delete)
+2. Store in local queue
+3. When online:
+   a. Upload local changes
+   b. Download remote changes
+   c. Resolve conflicts (LWW + conflict copies)
+   d. Update local state
+```
+
+---
+
+### 4. **File Compression**
+
+**Strategy:**
+- Client-side compression (optional)
+- Lossless algorithms (gzip, brotli)
+- User choice (compress vs speed)
+
+**Benefits:**
+- Reduce bandwidth (30-70% savings)
+- Faster uploads
+- Storage savings
+
+**Trade-offs:**
+- CPU overhead (compression/decompression)
+- Not effective for pre-compressed (images, videos)
+
+---
+
+### 5. **Smart Sync (Selective Sync)**
+
+**Feature:**
+- User selects which folders to sync
+- Save local disk space
+- On-demand download
+
+**Implementation:**
+```
+User marks folders:
+- "Always available offline"
+- "Online only"
+- "Available offline until space needed"
+
+Client:
+- Syncs only selected folders
+- Shows placeholders for others
+- Downloads on access
+```
+
+---
+
+### 6. **File Recovery (Trash & Versioning)**
+
+**Trash:**
+- Deleted files moved to trash
+- 30-day retention
+- Restore or permanent delete
+- Trash counts toward quota
+
+**Versioning:**
+- Keep last 100 versions
+- Or versions from last 30 days
+- Automatic for Office docs
+- Manual snapshots
+
+**Storage Optimization:**
+- Delta storage (store only differences)
+- Compress old versions
+- Tier to cold storage
+
+---
+
+### 7. **Bandwidth Optimization**
+
+**Techniques:**
+
+1. **Delta Sync:**
+   - Only sync changed bytes (rsync-like)
+   - Save bandwidth for large file updates
+
+2. **Adaptive Quality:**
+   - Lower quality for slow connections
+   - Progressive download (thumbnails first)
+
+3. **Compression:**
+   - Compress data in transit
+   - Brotli for text, H.264 for video
+
+4. **Prefetching:**
+   - Predict next file access
+   - Preload in background
+
+---
+
+### 8. **Security Enhancements**
+
+**Features:**
+
+1. **End-to-End Encryption (E2EE):**
+   - User controls encryption keys
+   - Server can't read files
+   - Trade-off: No server-side search/indexing
+
+2. **Zero-Knowledge Architecture:**
+   - Server knows nothing about content
+   - Higher security, limited features
+
+3. **Audit Logs:**
+   - Track all access (who, when, what)
+   - Compliance (GDPR, HIPAA)
+   - Retention policies
+
+4. **Two-Factor Authentication (2FA):**
+   - TOTP (Google Authenticator)
+   - SMS backup
+   - Biometric (mobile)
+
+---
+
+### 9. **Admin Features**
+
+**Team/Organization Management:**
+- Team shared folders
+- Admin policies (retention, sharing)
+- Usage analytics
+- Quota management
+- User provisioning (SSO integration)
+
+**Compliance:**
+- Legal holds (prevent deletion)
+- eDiscovery (search all content)
+- Data residency (store in specific regions)
+- Audit trails
+
+---
+
+### 10. **Mobile-Specific Features**
+
+**Camera Upload:**
+- Auto-upload photos/videos
+- Background sync
+- Wi-Fi only option
+
+**Offline Files:**
+- Mark files available offline
+- Smart cache management
+- Free up space automatically
+
+**Battery & Data Optimization:**
+- Throttle sync on low battery
+- Pause on cellular data
+- Compress uploads
+
+---
+
+## Monitoring & Operations
+
+### 1. **Key Metrics to Monitor**
+
+#### Application Metrics
+```
+- Upload Success Rate: Target > 99.5%
+- Download Success Rate: Target > 99.9%
+- API Latency: P95 < 200ms, P99 < 500ms
+- Sync Latency: P95 < 5 seconds
+- Search Latency: P95 < 300ms
+- Error Rate: < 0.1%
+- Concurrent Users: Track peak times
+```
+
+#### Infrastructure Metrics
+```
+- CPU Utilization: Target 60-70% (room for spikes)
+- Memory Usage: Alert > 80%
+- Disk I/O: Track IOPS, latency
+- Network: Bandwidth usage, packet loss
+- Database:
+  - Query latency (P95, P99)
+  - Connection pool usage
+  - Replication lag (< 1 second)
+- Cache:
+  - Hit rate (target > 80%)
+  - Eviction rate
+  - Memory usage
+```
+
+#### Business Metrics
+```
+- Daily Active Users (DAU)
+- Storage per user (average, P95, P99)
+- Files uploaded per day
+- Sharing activity
+- Collaboration sessions
+- Revenue metrics (if freemium)
+```
+
+---
+
+### 2. **Logging Strategy**
+
+**Log Levels:**
+```
+ERROR: Service failures, critical errors
+WARN: Degraded performance, retries
+INFO: Significant events (uploads, shares)
+DEBUG: Detailed troubleshooting (dev only)
+```
+
+**Structured Logging (JSON):**
+```json
+{
+    "timestamp": "2024-01-01T10:00:00Z",
+    "level": "INFO",
+    "service": "upload-service",
+    "trace_id": "abc123",
+    "user_id": "user_123",
+    "action": "file_upload",
+    "file_id": "file_456",
+    "duration_ms": 1250,
+    "status": "success"
+}
+```
+
+**Centralized Logging:**
+- **Technology**: ELK Stack (Elasticsearch, Logstash, Kibana)
+- **Alternative**: Splunk, Datadog, CloudWatch Logs
+- **Retention**: 30 days hot, 1 year warm, 7 years cold
+
+---
+
+### 3. **Alerting Strategy**
+
+**Alert Levels:**
+
+1. **Critical (Page Immediately):**
+   - Service down (health check fails)
+   - Database primary failure
+   - Error rate > 1%
+   - Data loss detected
+
+2. **High (Page during business hours):**
+   - Latency spike (P95 > 1 second)
+   - Disk space > 90%
+   - Replication lag > 10 seconds
+
+3. **Medium (Email/Slack):**
+   - Cache hit rate < 60%
+   - Upload success rate < 99%
+   - Unusual traffic patterns
+
+4. **Low (Daily digest):**
+   - Usage trends
+   - Cost anomalies
+
+**Alert Routing:**
+```
+Critical → PagerDuty → On-call engineer
+High → PagerDuty (business hours)
+Medium → Slack channel
+Low → Email digest
+```
+
+---
+
+### 4. **Distributed Tracing**
+
+**Technology**: Jaeger, Zipkin, AWS X-Ray
+
+**Purpose:**
+- Track request flow across services
+- Identify bottlenecks
+- Debug failures
+
+**Example Trace:**
+```
+Upload Request [500ms total]
+├─ API Gateway [5ms]
+├─ Auth Service [10ms]
+├─ Upload Service [400ms]
+│  ├─ Generate URLs [5ms]
+│  ├─ Upload to S3 [380ms] ← Bottleneck
+│  └─ Update Metadata [15ms]
+└─ Return Response [85ms]
+```
+
+---
+
+### 5. **Health Checks**
+
+**Endpoint:** `GET /health`
+
+**Response:**
+```json
+{
+    "status": "healthy",
+    "timestamp": "2024-01-01T10:00:00Z",
+    "version": "1.2.3",
+    "checks": {
+        "database": {
+            "status": "healthy",
+            "latency_ms": 5
+        },
+        "cache": {
+            "status": "healthy",
+            "hit_rate": 0.85
+        },
+        "storage": {
+            "status": "healthy"
+        },
+        "message_queue": {
+            "status": "degraded",
+            "lag": 150
+        }
+    }
+}
+```
+
+**Types:**
+- **Liveness**: Is service running?
+- **Readiness**: Can service handle traffic?
+- **Deep Health**: Check dependencies
+
+---
+
+### 6. **Disaster Recovery**
+
+**RPO (Recovery Point Objective)**: < 1 hour (data loss tolerance)
+**RTO (Recovery Time Objective)**: < 4 hours (downtime tolerance)
 
 **Backup Strategy:**
-- Database: Continuous WAL archiving, daily full backups
-- Object Storage: Cross-region replication, versioning
-- Metadata: Daily exports to S3
+```
+1. Database:
+   - Continuous WAL archiving
+   - Daily full backups
+   - Hourly incremental
+   - Multi-region replication
+   
+2. Object Storage:
+   - Versioning enabled
+   - Cross-region replication
+   - Lifecycle policies
+   
+3. Metadata:
+   - Daily exports to S3
+   - Keep 30 days
+```
 
-**Recovery:**
-- RPO (Recovery Point Objective): < 1 hour
-- RTO (Recovery Time Objective): < 4 hours
-
----
-
-## Security Considerations
-
-### 1. Authentication & Authorization
-- JWT tokens with short expiry (15 min)
-- Refresh tokens for session management
-- OAuth 2.0 for third-party integrations
-- Multi-factor authentication (TOTP, SMS)
-
-### 2. Encryption
-- **At Rest**: AES-256 encryption in S3
-- **In Transit**: TLS 1.3 for all connections
-- **End-to-End** (optional): Client-side encryption
-
-### 3. Access Control
-- Role-based permissions (Owner, Editor, Viewer)
-- Least privilege principle
-- Regular permission audits
-
-### 4. Network Security
-- VPC with private subnets
-- Security groups and NACLs
-- DDoS protection (CloudFlare, AWS Shield)
-- Rate limiting at API Gateway
-
-### 5. Data Protection
-- Regular backups
-- Data lifecycle policies
-- Compliance (GDPR, HIPAA)
-- Audit logs for all access
+**DR Runbook:**
+```
+1. Detect failure (monitoring alerts)
+2. Assess impact (scope of failure)
+3. Activate DR plan
+4. Failover to secondary region
+5. Verify data integrity
+6. Update DNS (route traffic)
+7. Monitor recovery
+8. Post-mortem analysis
+```
 
 ---
 
-## Summary & Key Points
+### 7. **Capacity Planning**
 
-### Architecture Highlights
-1. **Microservices**: Separate concerns (upload, download, metadata, sync, search)
-2. **Horizontal Scalability**: Shard databases, object storage, read replicas
-3. **High Availability**: Multi-region, replication, failover
+**Monitoring:**
+- Track growth rates (daily, weekly, monthly)
+- Predict future needs (6-12 months)
+- Plan infrastructure expansions
+
+**Key Questions:**
+- When will we hit 80% capacity?
+- What's the cost of next tier?
+- Can we optimize before scaling?
+
+**Scaling Triggers:**
+```
+Storage: > 70% used → Add capacity
+Database: QPS > 80% capacity → Add read replica
+Cache: Hit rate < 60% → Increase size
+API: P95 latency > 500ms → Add servers
+```
+
+---
+
+### 8. **Cost Optimization**
+
+**Strategies:**
+
+1. **Storage:**
+   - Lifecycle policies (move to cold storage)
+   - Compression (reduce size)
+   - Deduplication (single copy)
+   - Delete old versions
+
+2. **Compute:**
+   - Auto-scaling (scale down off-peak)
+   - Reserved instances (predictable load)
+   - Spot instances (async workers)
+
+3. **Bandwidth:**
+   - CDN caching (reduce origin load)
+   - Compression (reduce transfer)
+   - Smart routing (cheapest path)
+
+4. **Database:**
+   - Query optimization (reduce load)
+   - Connection pooling (reuse connections)
+   - Read replicas (distribute load)
+
+**Cost Monitoring:**
+- Tag resources by team/project
+- Track cost per user
+- Set budgets and alerts
+- Regular cost reviews
+
+---
+
+### 9. **Security Operations**
+
+**Continuous Monitoring:**
+- Failed login attempts (brute force detection)
+- Unusual access patterns (compromised accounts)
+- Data exfiltration (large downloads)
+- Permission changes (audit trail)
+
+**Incident Response:**
+```
+1. Detect: Automated alerts, user reports
+2. Contain: Disable account, revoke tokens
+3. Investigate: Analyze logs, identify scope
+4. Remediate: Patch vulnerability, reset passwords
+5. Recover: Restore affected data
+6. Post-Mortem: Document and improve
+```
+
+**Security Audits:**
+- Quarterly penetration testing
+- Annual security certifications (SOC 2, ISO 27001)
+- Compliance audits (GDPR, HIPAA)
+
+---
+
+### 10. **Performance Testing**
+
+**Load Testing:**
+- Simulate peak traffic (3x average)
+- Identify bottlenecks
+- Validate scaling plans
+
+**Stress Testing:**
+- Push beyond limits
+- Find breaking points
+- Test graceful degradation
+
+**Chaos Engineering:**
+- Randomly kill services
+- Test fault tolerance
+- Validate failover mechanisms
+
+**Tools:**
+- JMeter, Locust (load testing)
+- Chaos Monkey (chaos engineering)
+
+---
+
+## Summary & Interview Tips
+
+### Key Talking Points for Interviews
+
+1. **Start with Requirements Clarification:**
+   - Ask about scale (users, storage)
+   - Functional vs non-functional requirements
+   - Read/write ratio
+   - Consistency requirements
+
+2. **Discuss Trade-offs:**
+   - SQL vs NoSQL for metadata
+   - Strong vs eventual consistency
+   - Chunked vs streaming uploads
+   - Client-side vs server-side processing
+
+3. **Highlight Scalability:**
+   - Database sharding strategies
+   - Caching at multiple layers
+   - CDN for global distribution
+   - Async processing for heavy tasks
+
+4. **Address Reliability:**
+   - Replication and redundancy
+   - Failure detection and recovery
+   - Data durability guarantees
+   - Backup and disaster recovery
+
+5. **Security Considerations:**
+   - Authentication and authorization
+   - Encryption (at rest and in transit)
+   - Access control and permissions
+   - Audit logging
+
+6. **Mention Real-World Challenges:**
+   - Conflict resolution in sync
+   - Deduplication strategies
+   - Large file handling
+   - Mobile optimization
+
+### Common Follow-up Questions
+
+**Q: How do you handle files larger than 5GB?**
+A: Multipart upload with chunking (5MB chunks), parallel upload, resumable uploads, and progress tracking.
+
+**Q: How do you prevent data loss?**
+A: 3x replication across regions, versioning, continuous backups, WAL archiving, and cross-region replication.
+
+**Q: How do you scale the metadata database?**
+A: Shard by user_id, read replicas for read scalability, caching layer (Redis), and eventual migration to distributed SQL (CockroachDB).
+
+**Q: How do you handle concurrent edits?**
+A: Operational Transform for collaborative editing, or Last-Write-Wins with conflict copies for simple cases.
+
+**Q: How do you optimize costs?**
+A: Deduplication, compression, lifecycle policies (tiering to cold storage), and auto-scaling.
+
+**Q: How do you ensure global performance?**
+A: Multi-region deployment, CDN for downloads, geographic routing, edge caching, and regional read replicas.
+
+---
+
+## Conclusion
+
+This system design covers all major aspects of building a global file storage and sharing system like Google Drive. Key takeaways:
+
+1. **Microservices Architecture**: Separate concerns (upload, download, metadata, sync, search)
+2. **Horizontal Scalability**: Shard databases, use object storage, add read replicas
+3. **High Availability**: Multi-region, replication, failover mechanisms
 4. **Strong Security**: Encryption, access control, audit logging
-5. **Optimized Performance**: Caching, CDN, chunking, async processing
+5. **Optimized Performance**: Caching, CDN, compression, chunking
+6. **Reliability**: Versioning, backups, monitoring, alerts
 
-### Key Design Principles
-- **Scalability First**: Built to handle billions of users
-- **Reliability**: Multiple layers of redundancy
-- **Performance**: Caching and CDN for low latency
-- **Security**: Defense in depth
-- **Cost Efficiency**: Lifecycle policies, deduplication
+The design balances complexity with practicality, making trade-offs based on requirements and scale. It can handle billions of users and petabytes of data while maintaining performance and reliability.
 
-### Technology Choices
-- **Metadata**: PostgreSQL (sharded)
-- **Storage**: AWS S3 / GCS
-- **Cache**: Redis Cluster
-- **Message Queue**: Kafka / SQS
-- **Search**: Elasticsearch
-- **CDN**: CloudFront / Cloudflare
-
-**This design can handle billions of users and petabytes of data while maintaining 99.99% availability and strong security! 🚀**
+Good luck with your system design interview! 🚀
