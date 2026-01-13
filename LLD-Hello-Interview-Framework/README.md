@@ -199,11 +199,22 @@ ObjectA → Client: response
 
 ## 📚 LLD Problems Included
 
-### Core Problems (Complete)
+### Core Problems (Complete with HELLO Framework + Java Implementation)
 - ✅ **Rate Limiter** - Token Bucket, Leaky Bucket, Sliding Window algorithms
+  - 📄 Markdown: `rate-limiter-hello-interview.md`
+  - ☕ Java: `../LLD/RateLimiterSystem.java`
 - ✅ **LRU Cache** - HashMap + Doubly Linked List implementation
+  - 📄 Markdown: `lru-cache-hello-interview.md`
+  - ☕ Java: `../LLD/LRUCacheSystem.java`
 - ✅ **Circuit Breaker** - State pattern, failure detection
+  - 📄 Markdown: `circuit-breaker-hello-interview.md`
+  - ☕ Java: `../LLD/CircuitBreakerSystem.java`
 - ✅ **Parking Lot System** - Strategy pattern, polymorphism, multi-level support
+  - 📄 Markdown: `parking-lot-hello-interview.md`
+  - ☕ Java: `../LLD/ParkingLotSystem.java`
+- ✅ **Load Balancer** - 5 algorithms (Round Robin, Least Connections, Weighted RR, IP Hash, Random)
+  - 📄 Markdown: `load-balancer-hello-interview.md`
+  - ☕ Java: `../LLD/LoadBalancerSystem.java` (NEW!)
 
 ### In Progress
 - 🔄 **ATM System** - State machine, transaction management
@@ -219,12 +230,14 @@ ObjectA → Client: response
 - Customer Support Chat
 - DNS Cache System
 - Email System
+- Elevator System
 - Google Docs (Operational Transform)
 - Hit Counter
 - ID Generator
 - Inventory Management
 - Job Scheduler
 - Logging Framework
+- Meeting Room Scheduler
 - Metrics Collection
 - Movie Ticket Booking
 - Music Shuffle
@@ -463,7 +476,7 @@ After using this framework, you should be able to:
 
 **Created**: January 2026  
 **Framework Version**: 1.0  
-**Total LLD Problems**: 40+ (6 complete with HELLO framework)  
+**Total LLD Problems**: 40+ (5 complete with HELLO framework)  
 **Difficulty Range**: Easy to Hard  
 **Interview Success Rate**: High with proper preparation
 
