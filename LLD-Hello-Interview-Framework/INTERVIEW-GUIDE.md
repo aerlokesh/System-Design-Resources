@@ -190,11 +190,28 @@ public class Demo {
 - `*-hello-interview.md` - Complete documentation
 - `*System.java` - Full implementation
 
-### For Interview Practice:
-- `*System-Interview-Version.java` - Timed coding
-- Set timer for 60 minutes
-- Write from scratch
-- Compare with solution
+### For Interview Practice (NEW! ⭐):
+All located in `../LLD/` folder:
+
+**Core 5 (Most Common):**
+- **LoadBalancerSystem-Interview-Version.java** (200 lines, 45-60 min)
+- **RateLimiterSystem-Interview-Version.java** (160 lines, 45-60 min)
+- **LRUCacheSystem-Interview-Version.java** (150 lines, 30-45 min)
+- **ParkingLotSystem-Interview-Version.java** (200 lines, 45-60 min)
+- **CircuitBreakerSystem-Interview-Version.java** (180 lines, 40-50 min)
+
+**Additional 5 (Popular):**
+- **ElevatorSystem-Interview-Version.java** (180 lines, 45-60 min)
+- **MeetingRoomScheduler-Interview-Version.java** (170 lines, 40-50 min)
+- **HitCounterSystem-Interview-Version.java** (130 lines, 30-40 min)
+- **NotificationSystem-Interview-Version.java** (160 lines, 40-50 min)
+- **JobSchedulerSystem-Interview-Version.java** (170 lines, 45-60 min)
+
+**How to practice:**
+1. Set timer for specified duration
+2. Write from scratch (don't look at solution)
+3. Compare with interview version
+4. Repeat until you can do it without looking
 
 ## 🎯 Success Criteria
 
