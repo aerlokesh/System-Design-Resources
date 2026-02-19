@@ -522,6 +522,92 @@ public class SkewAwarePartitioner implements Partitioner {
 // This prevents any single task from being a bottleneck
 ```
 
+**Downstream Merge Step**: For hot hashtags split across sub-partitions, partial counts need to be merged:
+
+```java
+public class HotHashtagMerger {
+
+    /**
+     * Periodically merge partial counts for hot hashtags.
+     * Each sub-partition has its own CMS; merge by summing estimates.
+     */
+    @Scheduled(fixedRate = 5_000)
+    public void mergeHotHashtagCounts() {
+        for (String hotHashtag : hotHashtagTracker.getHotHashtags()) {
+            long totalCount = 0;
+            
+            // Sum partial counts from all sub-partitions
+            for (int subPartition = 0; subPartition < 10; subPartition++) {
+                CountMinSketch partialSketch = getSketchForSubPartition(subPartition);
+                totalCount += partialSketch.estimate(hotHashtag);
+            }
+            
+            // Write merged count to the global sketch
+            globalCandidates.updateCount(hotHashtag, totalCount);
+        }
+    }
+}
+
+/**
+ * Hot hashtag detection: promote a hashtag to "hot" status 
+ * when its per-second rate exceeds a threshold.
+ */
+public class HotHashtagTracker {
+    private static final int HOT_THRESHOLD_PER_SECOND = 500;
+    private final ConcurrentMap<String, AtomicLong> recentCounts = new ConcurrentHashMap<>();
+    private final Set<String> hotHashtags = ConcurrentHashMap.newKeySet();
+    
+    public void onEvent(String hashtag) {
+        long count = recentCounts.computeIfAbsent(hashtag, k -> new AtomicLong())
+            .incrementAndGet();
+        
+        if (count > HOT_THRESHOLD_PER_SECOND && !hotHashtags.contains(hashtag)) {
+            hotHashtags.add(hashtag);
+            log.info("Hashtag {} promoted to HOT status ({}/sec)", hashtag, count);
+            metrics.counter("trending.hot_hashtag.promoted").increment();
+        }
+    }
+    
+    /** Reset counters every second */
+    @Scheduled(fixedRate = 1_000)
+    public void resetCounters() {
+        // Demote hashtags that are no longer hot
+        for (String h : hotHashtags) {
+            AtomicLong count = recentCounts.get(h);
+            if (count != null && count.get() < HOT_THRESHOLD_PER_SECOND / 2) {
+                hotHashtags.remove(h);
+                log.info("Hashtag {} demoted from HOT status", h);
+            }
+        }
+        recentCounts.clear();
+    }
+    
+    public Set<String> getHotHashtags() {
+        return Collections.unmodifiableSet(hotHashtags);
+    }
+}
+```
+
+**Partitioning Strategy Summary**:
+```
+Normal hashtag (#lunch, #sunset):
+  → Deterministic partition by hash(hashtag)
+  → Single Flink task handles all events
+  → No merge needed
+
+Hot hashtag (#SuperBowl, #Election2024):
+  → Spread across 10 random sub-partitions
+  → 10 Flink tasks count independently
+  → Downstream merge step every 5 seconds
+  → Prevents any single task from bottlenecking
+
+Detection:
+  → Track per-second rate per hashtag
+  → Promote to "hot" when rate > 500/sec
+  → Demote when rate drops below 250/sec
+  → Typically 5-20 hot hashtags at any time
+```
+
 ---
 
 ### Deep Dive 5: Multi-Dimensional Trending (Country × Category × Window)
@@ -781,18 +867,684 @@ Together:         CMS provides counts, Space-Saving provides candidate list
 
 ---
 
+### Deep Dive 11: MapReduce Batch Recomputation — Accuracy Correction
+
+**The Problem**: Stream-only approximate counts drift over time. Count-Min Sketch overestimates, and window boundaries create small inaccuracies. A periodic batch job provides ground-truth counts to calibrate the streaming layer (Lambda Architecture).
+
+**Design**: Every hour, a Spark/MapReduce job reads raw events from the data lake, computes exact counts, and writes corrected trending results alongside the stream results. The serving layer merges both.
+
+```java
+public class BatchTrendingRecomputation {
+
+    /**
+     * Hourly batch job: reads raw hashtag events from data lake (S3/HDFS),
+     * computes exact counts per (hashtag, country, category, hour),
+     * and writes ground-truth trending results to a separate Redis keyspace.
+     *
+     * This corrects any drift from the streaming approximate counts.
+     * Runs as a scheduled Spark job.
+     */
+    
+    // Spark pseudo-code (Java API)
+    public void recomputeTrending(SparkSession spark, String inputPath, Instant hourStart) {
+        Instant hourEnd = hourStart.plus(Duration.ofHours(1));
+        
+        // Step 1: Read raw events from data lake
+        Dataset<Row> events = spark.read()
+            .parquet(inputPath)
+            .filter(col("timestamp").geq(Timestamp.from(hourStart)))
+            .filter(col("timestamp").lt(Timestamp.from(hourEnd)));
+        
+        // Step 2: Exact counts per dimension
+        Dataset<Row> exactCounts = events
+            .groupBy("hashtag", "country", "category")
+            .agg(count("*").as("exact_count"))
+            .cache();
+        
+        // Step 3: Compute top-K per dimension
+        WindowSpec rankWindow = Window.partitionBy("country", "category")
+            .orderBy(col("exact_count").desc());
+        
+        Dataset<Row> ranked = exactCounts
+            .withColumn("rank", row_number().over(rankWindow))
+            .filter(col("rank").leq(50)); // Top 50 per dimension
+        
+        // Step 4: Add global dimensions
+        Dataset<Row> globalCounts = events
+            .groupBy("hashtag")
+            .agg(count("*").as("exact_count"))
+            .withColumn("country", lit("GLOBAL"))
+            .withColumn("category", lit("ALL"));
+        
+        Dataset<Row> globalRanked = globalCounts
+            .withColumn("rank", row_number().over(
+                Window.orderBy(col("exact_count").desc())))
+            .filter(col("rank").leq(50));
+        
+        // Step 5: Write to Redis (batch keyspace)
+        ranked.union(globalRanked).foreachPartition(partition -> {
+            try (JedisCluster redis = new JedisCluster(redisNodes)) {
+                partition.forEachRemaining(row -> {
+                    String key = "trending:batch:60m:" + row.getString(1) + ":" + row.getString(2);
+                    TrendingHashtag th = new TrendingHashtag(
+                        row.getInt(3), row.getString(0), row.getLong(4));
+                    
+                    // Append to sorted list in Redis
+                    redis.zadd(key, row.getLong(4), row.getString(0));
+                    redis.expire(key, 7200); // 2 hour TTL
+                });
+            }
+        });
+        
+        log.info("Batch recomputation complete for hour {}: {} unique hashtags processed",
+            hourStart, exactCounts.count());
+    }
+}
+
+/**
+ * Serving layer merges stream (real-time) and batch (accurate) results.
+ * Stream results are preferred for freshness; batch for accuracy.
+ */
+public class HybridTrendingService {
+
+    public TrendingResult getTrending(String window, String country, String category) {
+        // For short windows (5m, 15m), use streaming only (freshness matters)
+        if ("5m".equals(window) || "15m".equals(window)) {
+            return streamTrendingService.getTrending(window, country, category, 50);
+        }
+        
+        // For longer windows (30m, 60m), merge stream + batch
+        TrendingResult streamResult = streamTrendingService.getTrending(window, country, category, 50);
+        TrendingResult batchResult = batchTrendingService.getTrending(window, country, category, 50);
+        
+        if (batchResult == null || batchResult.isStale()) {
+            return streamResult; // Batch not available, use stream only
+        }
+        
+        // Merge: use batch counts as baseline, stream counts for recent delta
+        return mergeResults(batchResult, streamResult);
+    }
+    
+    private TrendingResult mergeResults(TrendingResult batch, TrendingResult stream) {
+        // Union candidate hashtags from both sources
+        Map<String, Long> merged = new LinkedHashMap<>();
+        
+        for (TrendingHashtag th : batch.getHashtags()) {
+            merged.put(th.getHashtag(), th.getCount());
+        }
+        for (TrendingHashtag th : stream.getHashtags()) {
+            // Take max of batch and stream count (stream may have more recent data)
+            merged.merge(th.getHashtag(), th.getCount(), Math::max);
+        }
+        
+        // Sort by count descending, take top 50
+        List<TrendingHashtag> topK = merged.entrySet().stream()
+            .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+            .limit(50)
+            .map(e -> new TrendingHashtag(0, e.getKey(), e.getValue(), 0.0, null))
+            .collect(Collectors.toList());
+        
+        // Re-rank
+        for (int i = 0; i < topK.size(); i++) {
+            topK.set(i, topK.get(i).withRank(i + 1));
+        }
+        
+        return TrendingResult.builder()
+            .hashtags(topK)
+            .computedAt(Instant.now())
+            .approximate(false) // Batch results are exact
+            .build();
+    }
+}
+```
+
+**Lambda Architecture for Trending**:
+```
+┌──────────────────────────────────────────────────────┐
+│                    RAW EVENTS                         │
+│              Kafka → S3 Data Lake                     │
+└─────────┬──────────────────────────┬─────────────────┘
+          │                          │
+    ┌─────▼──────┐           ┌──────▼──────┐
+    │ SPEED LAYER│           │ BATCH LAYER │
+    │ (Flink)    │           │ (Spark)     │
+    │ Approx CMS │           │ Exact Count │
+    │ Real-time  │           │ Hourly      │
+    └─────┬──────┘           └──────┬──────┘
+          │                         │
+          ▼                         ▼
+    ┌──────────┐            ┌──────────┐
+    │ Redis    │            │ Redis    │
+    │ Stream   │            │ Batch    │
+    └─────┬────┘            └─────┬────┘
+          │                       │
+          └───────┬───────────────┘
+                  ▼
+          ┌──────────────┐
+          │ SERVING LAYER│
+          │ Merge both   │
+          │ Stream: 5m   │
+          │ Batch: 60m   │
+          └──────────────┘
+
+Stream: freshness (updated every 5s)
+Batch:  accuracy (exact counts, hourly)
+Merged: best of both worlds
+```
+
+---
+
+### Deep Dive 12: Personalized Trending — User-Interest-Based Trending
+
+**The Problem**: Global trending shows the same hashtags to everyone. A sports fan in Japan doesn't care about US politics trending. Personalized trending filters and re-ranks based on user interests, follows, and past engagement.
+
+**Approach**: We don't compute per-user trending (impossible at scale: 2B users). Instead, we compute trending per "interest cluster" (e.g., ~1,000 clusters), and map each user to their top 3 clusters based on engagement history.
+
+```java
+public class PersonalizedTrendingService {
+
+    /**
+     * Personalized trending = Global trending re-ranked by user affinity.
+     *
+     * Approach:
+     *   1. Offline: cluster users into ~1,000 interest groups via engagement analysis
+     *   2. Per user: store top 3 cluster IDs (computed daily by ML pipeline)
+     *   3. Per cluster: compute cluster-specific trending (weighted by cluster members' activity)
+     *   4. Serving: merge user's cluster trending with global trending
+     */
+    
+    private static final int NUM_CLUSTERS = 1000;
+    private static final int TOP_CLUSTERS_PER_USER = 3;
+    
+    /**
+     * Get personalized trending for a specific user.
+     * Falls back to geo+category trending if personalization not available.
+     */
+    public TrendingResult getPersonalizedTrending(UUID userId, String window, String country) {
+        // Step 1: Get user's interest clusters
+        List<UserCluster> userClusters = userClusterCache.get(userId);
+        
+        if (userClusters == null || userClusters.isEmpty()) {
+            // No personalization data — fall back to geo-based trending
+            return trendingService.getTrending(window, country, "ALL", 50);
+        }
+        
+        // Step 2: Get trending for each of user's clusters
+        Map<String, Double> personalizedScores = new LinkedHashMap<>();
+        
+        for (UserCluster cluster : userClusters) {
+            String clusterKey = "trending:cluster:" + window + ":" + cluster.getClusterId();
+            TrendingResult clusterTrending = redis.get(clusterKey, TrendingResult.class);
+            
+            if (clusterTrending == null) continue;
+            
+            for (TrendingHashtag th : clusterTrending.getHashtags()) {
+                double affinityWeight = cluster.getAffinity(); // 0.0 to 1.0
+                double score = th.getCount() * affinityWeight;
+                personalizedScores.merge(th.getHashtag(), score, Double::sum);
+            }
+        }
+        
+        // Step 3: Merge with global/geo trending (50% personal, 50% global)
+        TrendingResult globalTrending = trendingService.getTrending(window, country, "ALL", 50);
+        
+        for (TrendingHashtag th : globalTrending.getHashtags()) {
+            double globalScore = th.getCount() * 0.5; // 50% weight for global
+            personalizedScores.merge(th.getHashtag(), globalScore, Double::sum);
+        }
+        
+        // Step 4: Sort by personalized score, return top 50
+        List<TrendingHashtag> personalized = personalizedScores.entrySet().stream()
+            .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
+            .limit(50)
+            .map(e -> new TrendingHashtag(0, e.getKey(), e.getValue().longValue(), 0.0, null))
+            .collect(Collectors.toList());
+        
+        // Re-rank
+        for (int i = 0; i < personalized.size(); i++) {
+            personalized.set(i, personalized.get(i).withRank(i + 1));
+        }
+        
+        return TrendingResult.builder()
+            .hashtags(personalized)
+            .computedAt(Instant.now())
+            .personalized(true)
+            .build();
+    }
+}
+
+/**
+ * Cluster-specific trending: computed by the Flink pipeline.
+ * Each event is routed to the cluster(s) of the posting user.
+ */
+public class ClusterTrendingAggregator {
+
+    /**
+     * For each hashtag event, update the clusters that the posting user belongs to.
+     * This means cluster trending reflects what members of that cluster are posting about.
+     */
+    public void processEvent(HashtagEvent event) {
+        // Get posting user's clusters (cached lookup)
+        List<Integer> userClusterIds = userClusterLookup.getClusters(event.getUserId());
+        
+        for (int clusterId : userClusterIds) {
+            for (String window : List.of("5m", "15m", "30m", "60m")) {
+                String key = "cluster:" + window + ":" + clusterId;
+                sketches.computeIfAbsent(key, k -> new CountMinSketch(0.001, 0.01))
+                    .increment(event.getHashtag());
+                candidates.computeIfAbsent(key, k -> new SpaceSavingTopK(200))
+                    .add(event.getHashtag());
+            }
+        }
+    }
+    
+    /** Flush cluster trending to Redis every 10 seconds */
+    @Scheduled(fixedRate = 10_000)
+    public void flushClusterTrending() {
+        for (var entry : candidates.entrySet()) {
+            String dimensionKey = entry.getKey();
+            SpaceSavingTopK topK = entry.getValue();
+            CountMinSketch sketch = sketches.get(dimensionKey);
+            
+            List<TrendingHashtag> trending = topK.getTopK(50).stream()
+                .map(e -> new TrendingHashtag(0, e.getKey(), sketch.estimate(e.getKey()), 0.0, null))
+                .sorted(Comparator.comparingLong(TrendingHashtag::getCount).reversed())
+                .collect(Collectors.toList());
+            
+            redis.setex("trending:" + dimensionKey, 30,
+                objectMapper.writeValueAsString(trending));
+        }
+    }
+}
+```
+
+**User Clustering Pipeline** (daily batch job):
+```
+1. Feature extraction: for each user, compute:
+   - Hashtags used in last 30 days (TF-IDF weighted)
+   - Categories of posts engaged with
+   - Accounts followed (topic-level features)
+
+2. K-Means clustering: 1,000 clusters
+   - Input: user feature vectors
+   - Output: cluster assignment for each user
+   - Each cluster represents an "interest community"
+
+3. Store in Redis: user_id → [cluster_42: 0.8, cluster_17: 0.6, cluster_99: 0.4]
+   - Top 3 clusters with affinity scores
+   - TTL: 48 hours (refreshed daily)
+
+4. Memory: 2B users × 3 clusters × 8 bytes = 48 GB
+   → Stored in separate Redis cluster or Cassandra
+```
+
+---
+
+### Deep Dive 13: Bot & Spam Filtering — Protecting Trending Integrity
+
+**The Problem**: Bots and coordinated campaigns can artificially inflate hashtags to manipulate trending. A botnet of 100K accounts can push any hashtag into trending within minutes. We need real-time spam filtering in the ingestion pipeline.
+
+```java
+public class SpamFilterService {
+
+    /**
+     * Multi-signal spam filter applied BEFORE events enter the trending pipeline.
+     * Filters are applied in the Flink pipeline as the first processing step.
+     *
+     * Signals:
+     *   1. Account age: new accounts (< 7 days) get 0.1x weight
+     *   2. Burst detection: if a hashtag goes from 0 to 10K in 1 min, flag it
+     *   3. User diversity: if > 80% of a hashtag's usage comes from < 100 users, it's coordinated
+     *   4. IP clustering: if many events come from the same IP range, reduce weight
+     *   5. Content repetition: identical post text from different users = bot
+     *   6. Account trust score: ML-computed reputation (0.0 to 1.0)
+     */
+    
+    // Account age weighting
+    private static final Duration NEW_ACCOUNT_THRESHOLD = Duration.ofDays(7);
+    private static final double NEW_ACCOUNT_WEIGHT = 0.1;
+    
+    // Burst detection
+    private static final int BURST_THRESHOLD_PER_MINUTE = 5000;
+    
+    // User diversity
+    private static final double MIN_USER_DIVERSITY = 0.2; // At least 20% unique users
+    
+    /**
+     * Filter and weight an incoming hashtag event.
+     * Returns a weight between 0.0 (spam, discard) and 1.0 (legitimate).
+     */
+    public double computeEventWeight(HashtagEvent event) {
+        double weight = 1.0;
+        
+        // Signal 1: Account age
+        Instant accountCreated = userProfileCache.getAccountCreatedDate(event.getUserId());
+        if (accountCreated != null) {
+            Duration accountAge = Duration.between(accountCreated, Instant.now());
+            if (accountAge.compareTo(NEW_ACCOUNT_THRESHOLD) < 0) {
+                weight *= NEW_ACCOUNT_WEIGHT;
+            }
+        }
+        
+        // Signal 2: Account trust score (ML-computed, cached)
+        Double trustScore = userTrustCache.get(event.getUserId());
+        if (trustScore != null) {
+            weight *= trustScore; // 0.0 (known bot) to 1.0 (trusted user)
+        }
+        
+        // Signal 3: Burst detection (per-hashtag rate)
+        String burstKey = "spam:burst:" + event.getHashtag() + ":" + minuteWindow();
+        long recentCount = redis.incr(burstKey);
+        if (recentCount == 1) redis.expire(burstKey, 120);
+        
+        if (recentCount > BURST_THRESHOLD_PER_MINUTE) {
+            // Hashtag is in burst mode — apply heavy dampening
+            weight *= 0.01; // 99% reduction
+            metrics.counter("spam.burst_dampened").increment();
+        }
+        
+        // Signal 4: Check if this user already posted this hashtag recently (dedup)
+        String dedupKey = "spam:dedup:" + event.getUserId() + ":" + event.getHashtag();
+        boolean isDuplicate = !redis.set(dedupKey, "1", SetParams.setParams().nx().ex(300));
+        if (isDuplicate) {
+            weight = 0.0; // Same user, same hashtag within 5 min = likely bot
+        }
+        
+        return weight;
+    }
+    
+    /**
+     * User diversity check: run periodically for trending candidates.
+     * If a hashtag's usage is dominated by very few users, it's suspicious.
+     */
+    @Scheduled(fixedRate = 30_000)
+    public void checkUserDiversity() {
+        for (TrendingHashtag th : currentTrendingCandidates) {
+            String hashtag = th.getHashtag();
+            
+            // HyperLogLog: approximate count of distinct users for this hashtag
+            long distinctUsers = redis.pfcount("hll:users:" + hashtag);
+            long totalEvents = th.getCount();
+            
+            if (totalEvents > 1000 && distinctUsers < totalEvents * MIN_USER_DIVERSITY) {
+                // Less than 20% unique users — likely coordinated campaign
+                log.warn("Hashtag {} flagged: {} events from only {} unique users",
+                    hashtag, totalEvents, distinctUsers);
+                
+                // Demote from trending (don't remove, just lower rank)
+                redis.zadd("trending:demoted", Instant.now().getEpochSecond(), hashtag);
+                metrics.counter("spam.coordinated_detected").increment();
+            }
+        }
+    }
+    
+    private String minuteWindow() {
+        return String.valueOf(Instant.now().getEpochSecond() / 60);
+    }
+}
+```
+
+**Weighted Event Processing in Flink**:
+```java
+public class WeightedTrendingProcessor extends ProcessFunction<HashtagEvent, Void> {
+    
+    @Override
+    public void processElement(HashtagEvent event, Context ctx, Collector<Void> out) {
+        double weight = spamFilter.computeEventWeight(event);
+        
+        if (weight <= 0.01) {
+            metrics.counter("trending.events.filtered").increment();
+            return; // Discard spam
+        }
+        
+        // Weighted increment: instead of +1, add +weight (fractional count)
+        // This naturally dampens suspicious accounts
+        String hashtag = event.getHashtag();
+        
+        for (String window : WINDOWS) {
+            for (String[] dim : getDimensions(event)) {
+                String key = window + ":" + dim[0] + ":" + dim[1];
+                
+                // Weighted increment: sketch.increment becomes sketch.add(hashtag, weight)
+                weightedSketches.get(key).add(hashtag, weight);
+                
+                if (weight > 0.5) { // Only add to candidates if reasonably trusted
+                    candidates.get(key).add(hashtag);
+                }
+            }
+        }
+    }
+}
+```
+
+**Spam Filter Pipeline**:
+```
+Raw Event → Spam Filter → Weighted Event → Count-Min Sketch → Top-K
+
+Signals (applied in order):
+┌─────────────────────┬─────────────┬────────────────────────────────┐
+│ Signal              │ Weight      │ Effect                         │
+├─────────────────────┼─────────────┼────────────────────────────────┤
+│ Account < 7 days    │ × 0.1       │ New accounts count as 1/10th   │
+│ Trust score (ML)    │ × 0.0-1.0   │ Known bots get 0 weight        │
+│ Burst (>5K/min)     │ × 0.01      │ Sudden spikes get dampened     │
+│ Duplicate post      │ × 0.0       │ Same user+hashtag in 5m = drop │
+│ Low diversity       │ Demoted     │ Removed from trending display  │
+└─────────────────────┴─────────────┴────────────────────────────────┘
+```
+
+---
+
+### Deep Dive 14: Historical Trending & Trend Archives
+
+**The Problem**: Users and analysts want to see "what was trending yesterday" or "trending during the World Cup." We need a durable store of historical trending snapshots that supports time-range queries efficiently.
+
+```java
+public class HistoricalTrendingService {
+
+    /**
+     * Store snapshots of trending results every 5 minutes.
+     * Each snapshot captures the top-50 for each dimension at that point in time.
+     * 
+     * Storage: TimescaleDB (PostgreSQL extension optimized for time-series data)
+     * Retention: 90 days detailed, 1 year aggregated (hourly snapshots)
+     */
+    
+    // Schema: time-series table with automatic partitioning by time
+    // CREATE TABLE trending_snapshots (
+    //     snapshot_time   TIMESTAMPTZ NOT NULL,
+    //     window_key      VARCHAR(10) NOT NULL,  -- '5m', '15m', '30m', '60m'
+    //     country         VARCHAR(5)  NOT NULL,
+    //     category        VARCHAR(20) NOT NULL,
+    //     rank            INT NOT NULL,
+    //     hashtag         VARCHAR(255) NOT NULL,
+    //     count           BIGINT NOT NULL,
+    //     velocity        DOUBLE PRECISION,
+    //     PRIMARY KEY (snapshot_time, window_key, country, category, rank)
+    // );
+    // SELECT create_hypertable('trending_snapshots', 'snapshot_time');
+    
+    /**
+     * Capture a snapshot: called by Flink every 5 minutes after flushing to Redis.
+     */
+    public void captureSnapshot(Instant snapshotTime, String windowKey, 
+                                 String country, String category,
+                                 List<TrendingHashtag> topK) {
+        List<TrendingSnapshot> snapshots = new ArrayList<>();
+        
+        for (TrendingHashtag th : topK) {
+            snapshots.add(TrendingSnapshot.builder()
+                .snapshotTime(snapshotTime)
+                .windowKey(windowKey)
+                .country(country)
+                .category(category)
+                .rank(th.getRank())
+                .hashtag(th.getHashtag())
+                .count(th.getCount())
+                .velocity(th.getVelocityScore())
+                .build());
+        }
+        
+        // Batch insert (very efficient with TimescaleDB chunking)
+        snapshotRepo.saveAll(snapshots);
+    }
+    
+    /**
+     * Query: "What was trending in the US for SPORTS yesterday at 3 PM?"
+     */
+    public TrendingResult getHistoricalTrending(Instant timestamp, String window,
+                                                  String country, String category) {
+        // Find closest snapshot to requested time (within 5 min)
+        List<TrendingSnapshot> snapshots = snapshotRepo.findClosestSnapshot(
+            timestamp, window, country, category, Duration.ofMinutes(5));
+        
+        if (snapshots.isEmpty()) {
+            return TrendingResult.empty();
+        }
+        
+        List<TrendingHashtag> hashtags = snapshots.stream()
+            .map(s -> new TrendingHashtag(s.getRank(), s.getHashtag(), s.getCount(),
+                                           s.getVelocity(), category))
+            .collect(Collectors.toList());
+        
+        return TrendingResult.builder()
+            .hashtags(hashtags)
+            .computedAt(snapshots.get(0).getSnapshotTime())
+            .approximate(false)
+            .historical(true)
+            .build();
+    }
+    
+    /**
+     * Query: "How did #WorldCup trend over the past 7 days?"
+     * Returns a time series of the hashtag's rank and count at each snapshot.
+     */
+    public List<HashtagTimeSeries> getHashtagHistory(String hashtag, String country,
+                                                      Instant from, Instant to) {
+        return jdbcTemplate.query("""
+            SELECT snapshot_time, count, rank, velocity
+            FROM trending_snapshots
+            WHERE hashtag = ? AND country = ? AND window_key = '60m' AND category = 'ALL'
+              AND snapshot_time BETWEEN ? AND ?
+            ORDER BY snapshot_time ASC
+            """,
+            new Object[]{hashtag, country, Timestamp.from(from), Timestamp.from(to)},
+            (rs, rowNum) -> HashtagTimeSeries.builder()
+                .timestamp(rs.getTimestamp("snapshot_time").toInstant())
+                .count(rs.getLong("count"))
+                .rank(rs.getInt("rank"))
+                .velocity(rs.getDouble("velocity"))
+                .build());
+    }
+    
+    /**
+     * Retention policy: automatic data lifecycle management.
+     * - Last 90 days: full 5-minute resolution snapshots
+     * - 90 days - 1 year: hourly aggregated snapshots
+     * - > 1 year: daily aggregated snapshots (cold storage / S3)
+     */
+    @Scheduled(cron = "0 0 3 * * *") // Daily at 3 AM
+    public void applyRetentionPolicy() {
+        Instant ninetyDaysAgo = Instant.now().minus(Duration.ofDays(90));
+        Instant oneYearAgo = Instant.now().minus(Duration.ofDays(365));
+        
+        // Downsample 90+ day data to hourly resolution
+        jdbcTemplate.execute("""
+            INSERT INTO trending_snapshots_hourly
+            SELECT time_bucket('1 hour', snapshot_time) AS snapshot_time,
+                   window_key, country, category,
+                   hashtag,
+                   AVG(rank)::INT AS rank,
+                   MAX(count) AS count,
+                   AVG(velocity) AS velocity
+            FROM trending_snapshots
+            WHERE snapshot_time < ? AND snapshot_time >= ?
+            GROUP BY 1, 2, 3, 4, 5
+            ON CONFLICT DO NOTHING
+            """);
+        
+        // Delete detailed data older than 90 days
+        snapshotRepo.deleteBySnapshotTimeBefore(ninetyDaysAgo);
+        
+        // Archive 1+ year data to S3 (Parquet format)
+        archiveToS3(oneYearAgo);
+        
+        log.info("Retention policy applied: removed detailed data before {}", ninetyDaysAgo);
+    }
+}
+```
+
+**Historical Trending Storage Estimation**:
+```
+Snapshots per day:
+  Every 5 min × 24 hours = 288 snapshots/day
+  Per snapshot: 8,000 dimensions × 50 hashtags = 400,000 rows
+  Total rows/day: 288 × 400,000 = 115M rows
+  Row size: ~200 bytes
+  Daily storage: 115M × 200 bytes = 23 GB/day
+
+Retention:
+  90 days × 23 GB = 2 TB (detailed, 5-min resolution)
+  365 days × 2 GB = 730 GB (hourly aggregated)
+  → Total: ~3 TB in TimescaleDB (compressed: ~600 GB)
+
+Query performance:
+  Point query (single timestamp): < 10ms (index on snapshot_time)
+  Range query (7-day history for 1 hashtag): < 100ms
+  Full scan (all trending at one time): < 50ms
+```
+
+**Historical API**:
+```
+GET /api/v1/trending/history?hashtag=%23WorldCup&country=GLOBAL&from=2025-06-10&to=2025-07-15
+
+Response:
+{
+  "hashtag": "#WorldCup",
+  "country": "GLOBAL",
+  "data_points": [
+    { "timestamp": "2025-06-10T12:00:00Z", "rank": 45, "count": 12000, "velocity": 1.2 },
+    { "timestamp": "2025-06-10T12:05:00Z", "rank": 38, "count": 15000, "velocity": 2.1 },
+    ...
+    { "timestamp": "2025-07-14T20:00:00Z", "rank": 1, "count": 45000000, "velocity": 95.3 }
+  ]
+}
+
+GET /api/v1/trending/snapshot?timestamp=2025-07-14T20:00:00Z&country=US&category=SPORTS
+
+Response:
+{
+  "snapshot_time": "2025-07-14T20:00:00Z",
+  "window": "60m",
+  "country": "US",
+  "category": "SPORTS",
+  "historical": true,
+  "hashtags": [
+    { "rank": 1, "hashtag": "#WorldCupFinal", "count": 12500000 },
+    { "rank": 2, "hashtag": "#FIFAWorldCup", "count": 9800000 },
+    ...
+  ]
+}
+```
+
+---
+
 ## 📊 Summary: Key Trade-offs
 
-| Decision | Chosen | Why |
-|----------|--------|-----|
-| **Counting** | Count-Min Sketch (approximate) | 850 MB vs 640 GB exact; 0.1% error is fine for trending |
-| **Top-K candidates** | Space-Saving algorithm | O(1) per event, guaranteed top-K coverage |
-| **Windows** | Tumbling micro-batches (1-min buckets) | Simpler than true sliding window; ±1 min accuracy |
-| **Processing** | Apache Flink (stream) | Native windowing, checkpointing, exactly-once |
-| **Serving** | Redis + CDN + local cache | < 5ms reads, 3-layer caching, graceful degradation |
-| **Partitioning** | Hashtag-based + hot-key spreading | Avoids skew on viral hashtags |
-| **Multi-dimensional** | Fan-out to 16 sketches per event | 8,000 dimensions × 109 KB = 850 MB total |
-| **Ranking** | Volume × velocity | Surfaces rising topics, not just always-popular ones |
+| Decision | Options Considered | Chosen | Why |
+|----------|-------------------|--------|-----|
+| **Counting** | Exact HashMap / CMS / HLL | Count-Min Sketch (approximate) | 850 MB vs 640 GB exact; 0.1% error is fine for trending |
+| **Top-K candidates** | Full scan / Lossy Counting / Space-Saving | Space-Saving algorithm | O(1) per event, guaranteed top-K coverage, 20 KB per dimension |
+| **Windows** | True sliding / Session / Tumbling micro-batches | Tumbling micro-batches (1-min buckets) | Simpler than true sliding window; ±1 min accuracy is acceptable |
+| **Processing** | Kafka Streams / Flink / Spark Streaming | Apache Flink (stream) | Native windowing, checkpointing, exactly-once semantics |
+| **Serving** | DB query / Redis only / Redis + CDN | Redis + CDN + local cache | < 5ms reads, 3-layer caching, graceful degradation |
+| **Partitioning** | Round-robin / Hashtag / Hot-key spread | Hashtag-based + hot-key spreading | Avoids skew on viral hashtags like #SuperBowl |
+| **Multi-dimensional** | Separate pipelines / Single fan-out | Fan-out to 16 sketches per event | 8,000 dimensions × 109 KB = 850 MB total, single pipeline |
+| **Ranking** | Raw count / TF-IDF / Volume × velocity | Volume × velocity | Surfaces rising topics, not just always-popular ones |
+| **Accuracy correction** | Stream-only / Batch-only / Lambda | Lambda (stream + batch merge) | Stream for freshness, batch for accuracy |
+| **Personalization** | Per-user / Per-segment / Per-cluster | Per-cluster (1,000 clusters) | Impossible to compute per-user trending for 2B users |
+| **Spam protection** | Post-hoc removal / Weighted ingestion | Weighted ingestion (6 signals) | Real-time protection, graceful dampening |
+| **Historical** | Log files / Columnar DB / TimescaleDB | TimescaleDB + tiered retention | Time-series optimized, auto-partitioning, SQL compatible |
 
 ## 🎯 Interview Talking Points
 
@@ -808,6 +1560,22 @@ Together:         CMS provides counts, Space-Saving provides candidate list
 
 6. **"Three layers of degradation"** — Redis stale data → local cache → editorial picks. Trending should never be "unavailable."
 
+7. **"Space-Saving provides the candidate set"** — CMS answers "how many?" but not "which ones?" Space-Saving tracks the top ~200 candidates with O(1) updates and bounded memory.
+
+8. **"Fan-out to 16 dimensions per event"** — Each event updates 4 windows × 2 geo (country + global) × 2 category (specific + ALL) = 16 sketch updates. At 500K events/sec = 8M updates/sec.
+
+9. **"Lambda Architecture for accuracy"** — Stream layer (Flink + CMS) for real-time freshness. Batch layer (Spark) for hourly exact counts. Merge both for best of both worlds.
+
+10. **"Personalization via 1,000 interest clusters"** — Per-user trending is impossible at 2B scale. Instead, cluster users into interest communities, compute per-cluster trending, merge with global trending weighted by user affinity.
+
+11. **"Weighted ingestion stops bot manipulation"** — 6-signal spam filter: account age, trust score, burst detection, dedup, user diversity (HLL), IP clustering. Bots get 0 weight; new accounts get 0.1x.
+
+12. **"TimescaleDB for historical trends"** — 5-minute snapshots for 90 days (2 TB), hourly for 1 year (730 GB), daily to S3 for archive. Point queries < 10ms, range queries < 100ms.
+
+13. **"CMS + Space-Saving is the classic combo"** — CMS provides frequency estimates, Space-Saving provides the candidate list. Together: top-K with bounded error and bounded memory.
+
+14. **"8,000 Redis keys serve the entire world"** — 4 windows × 200 countries × 10 categories = 8,000 pre-computed trending lists. Total: 80 MB in Redis. Each query is a single GET.
+
 ---
 
 **References**:
@@ -816,7 +1584,12 @@ Together:         CMS provides counts, Space-Saving provides candidate list
 - Twitter Trends Architecture
 - Apache Flink Windowing Documentation
 - Redis as a Real-Time Serving Layer
+- Lambda Architecture (Nathan Marz)
+- TimescaleDB Time-Series Documentation
 
 ---
 
-**Created**: February 2026 | **Framework**: Hello Interview (6-step) | **Deep Dives**: 10 topics
+**Created**: February 2026
+**Framework**: Hello Interview (6-step)
+**Estimated Interview Time**: 45-60 minutes
+**Deep Dives**: 14 topics (choose 2-3 based on interviewer interest)
