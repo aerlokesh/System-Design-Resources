@@ -11,17 +11,17 @@ enum ATMState {
     IDLE, CARD_INSERTED, PIN_VERIFIED, TRANSACTION
 }
 
-enum TransactionType {
+enum ATMTransactionType {
     WITHDRAW, DEPOSIT, BALANCE_INQUIRY
 }
 
 // ==================== Bank Account ====================
-class BankAccount {
+class ATMBankAccount {
     private final String accountNumber;
     private final String pin;
     private double balance;
 
-    public BankAccount(String accountNumber, String pin, double initialBalance) {
+    public ATMBankAccount(String accountNumber, String pin, double initialBalance) {
         this.accountNumber = accountNumber;
         this.pin = pin;
         this.balance = initialBalance;
@@ -55,11 +55,11 @@ class BankAccount {
 // ==================== Transaction Record ====================
 class TransactionRecord {
     private final String transactionId;
-    private final TransactionType type;
+    private final ATMTransactionType type;
     private final double amount;
     private final String timestamp;
 
-    public TransactionRecord(String transactionId, TransactionType type, double amount) {
+    public TransactionRecord(String transactionId, ATMTransactionType type, double amount) {
         this.transactionId = transactionId;
         this.type = type;
         this.amount = amount;
@@ -76,7 +76,7 @@ class TransactionRecord {
 class ATM {
     private final String atmId;
     private ATMState state;
-    private BankAccount currentAccount;
+    private ATMBankAccount currentAccount;
     private double cashAvailable;
     private final List<TransactionRecord> transactions;
     private int transactionCounter;
@@ -89,7 +89,7 @@ class ATM {
         this.transactionCounter = 1;
     }
 
-    public void insertCard(BankAccount account) {
+    public void insertCard(ATMBankAccount account) {
         if (state != ATMState.IDLE) {
             System.out.println("✗ ATM busy");
             return;
@@ -123,19 +123,27 @@ class ATM {
             return false;
         }
 
+        // Check account balance first
+        if (amount > currentAccount.getBalance()) {
+            System.out.println("✗ Insufficient account balance");
+            return false;
+        }
+
+        // Then check ATM cash availability
         if (amount > cashAvailable) {
             System.out.println("✗ Insufficient cash in ATM");
             return false;
         }
 
+        // Perform the withdrawal
         if (currentAccount.withdraw(amount)) {
             cashAvailable -= amount;
-            recordTransaction(TransactionType.WITHDRAW, amount);
+            recordTransaction(ATMTransactionType.WITHDRAW, amount);
             System.out.println("✓ Withdrawn: $" + amount);
             System.out.println("  New balance: $" + currentAccount.getBalance());
             return true;
         } else {
-            System.out.println("✗ Insufficient account balance");
+            System.out.println("✗ Withdrawal failed");
             return false;
         }
     }
@@ -148,7 +156,7 @@ class ATM {
 
         currentAccount.deposit(amount);
         cashAvailable += amount;
-        recordTransaction(TransactionType.DEPOSIT, amount);
+        recordTransaction(ATMTransactionType.DEPOSIT, amount);
         System.out.println("✓ Deposited: $" + amount);
         System.out.println("  New balance: $" + currentAccount.getBalance());
     }
@@ -159,7 +167,7 @@ class ATM {
             return;
         }
 
-        recordTransaction(TransactionType.BALANCE_INQUIRY, 0);
+        recordTransaction(ATMTransactionType.BALANCE_INQUIRY, 0);
         System.out.println("✓ Current balance: $" + currentAccount.getBalance());
     }
 
@@ -169,7 +177,7 @@ class ATM {
         this.state = ATMState.IDLE;
     }
 
-    private void recordTransaction(TransactionType type, double amount) {
+    private void recordTransaction(ATMTransactionType type, double amount) {
         String txnId = "TXN" + transactionCounter++;
         TransactionRecord record = new TransactionRecord(txnId, type, amount);
         transactions.add(record);
@@ -194,8 +202,8 @@ public class ATMSystemInterviewVersion {
         ATM atm = new ATM("ATM-001", 10000);
 
         // Create bank accounts
-        BankAccount account1 = new BankAccount("1234567890", "1234", 1000);
-        BankAccount account2 = new BankAccount("0987654321", "5678", 500);
+        ATMBankAccount account1 = new ATMBankAccount("1234567890", "1234", 1000);
+        ATMBankAccount account2 = new ATMBankAccount("0987654321", "5678", 500);
 
         atm.displayStatus();
 
