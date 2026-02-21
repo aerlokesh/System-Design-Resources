@@ -1319,6 +1319,464 @@ public class SearchResultCache {
 
 ---
 
+---
+
+### Deep Dive 13: Stop Word Handling & High-Frequency Term Optimization
+
+**The Problem**: Terms like "the", "is", "and" appear in nearly every document. Their posting lists are enormous (billions of entries). Including them in intersection would be wasteful and slow. But sometimes stop words ARE meaningful — "The Who" (band), "To Be or Not To Be" (quote).
+
+```java
+public class StopWordOptimizer {
+
+    /**
+     * Tiered stop word handling:
+     * 
+     * Tier 1: Always remove (ultra-common, never useful alone):
+     *   "a", "an", "the", "is", "are", "was", "were", "be"
+     * 
+     * Tier 2: Remove from AND queries, keep in phrase queries:
+     *   "to", "in", "on", "at", "for", "of", "with", "by"
+     *   Example: phrase "to be or not to be" → keep all words
+     *   Example: AND query "to london" → remove "to", search "london"
+     * 
+     * Tier 3: Frequency-based dynamic stop words:
+     *   If a term appears in > 30% of all documents, treat as stop word
+     *   This catches terms like "http", "www", "com" that aren't in standard lists
+     */
+    
+    private static final Set<String> TIER1_ALWAYS_REMOVE = Set.of(
+        "a", "an", "the", "is", "are", "was", "were", "be", "been", "am",
+        "do", "did", "does", "have", "has", "had", "i", "me", "my"
+    );
+    
+    private static final Set<String> TIER2_CONTEXT_DEPENDENT = Set.of(
+        "to", "in", "on", "at", "for", "of", "with", "by", "from",
+        "and", "or", "but", "not", "no", "so", "if", "as"
+    );
+    
+    private static final double DYNAMIC_STOP_THRESHOLD = 0.30; // 30% of all docs
+    
+    /**
+     * Filter stop words based on query type.
+     */
+    public List<String> filterForQuery(List<String> terms, QueryType queryType) {
+        List<String> filtered = new ArrayList<>();
+        
+        for (String term : terms) {
+            // Tier 1: always remove
+            if (TIER1_ALWAYS_REMOVE.contains(term)) continue;
+            
+            // Tier 2: remove for AND queries, keep for phrase queries
+            if (TIER2_CONTEXT_DEPENDENT.contains(term)) {
+                if (queryType == QueryType.PHRASE) {
+                    filtered.add(term); // Keep for phrase matching
+                }
+                continue; // Skip for AND queries
+            }
+            
+            // Tier 3: dynamic frequency-based check
+            if (isDynamicStopWord(term)) {
+                if (queryType == QueryType.PHRASE) {
+                    filtered.add(term);
+                }
+                continue;
+            }
+            
+            filtered.add(term);
+        }
+        
+        // Safety: if ALL terms were removed, fall back to the most specific term
+        if (filtered.isEmpty() && !terms.isEmpty()) {
+            String rarestTerm = terms.stream()
+                .min(Comparator.comparingLong(t -> index.getDocumentFrequency(t)))
+                .orElse(terms.get(0));
+            filtered.add(rarestTerm);
+        }
+        
+        return filtered;
+    }
+    
+    /** Check if a term is a dynamic stop word (appears in > 30% of docs) */
+    private boolean isDynamicStopWord(String term) {
+        long df = index.getDocumentFrequency(term);
+        long total = index.getTotalDocuments();
+        return total > 0 && (double) df / total > DYNAMIC_STOP_THRESHOLD;
+    }
+    
+    /**
+     * For high-frequency terms that we must include (phrase search),
+     * use a "frequency-ordered" posting list intersection optimization.
+     * 
+     * Instead of full intersection, take top-N from the rare term's list
+     * and only check those against the common term's list.
+     */
+    public List<ScoredPosting> optimizedPhraseIntersect(PostingList rareTermList,
+                                                          PostingList commonTermList,
+                                                          int maxCandidates) {
+        List<ScoredPosting> results = new ArrayList<>();
+        
+        // Only check first maxCandidates from rare term
+        int checked = 0;
+        for (Posting rarePosting : rareTermList.getPostings()) {
+            if (checked >= maxCandidates) break;
+            
+            // Binary search in common term's list (O(log N) instead of scanning)
+            Posting commonPosting = commonTermList.binarySearch(rarePosting.getPostId());
+            if (commonPosting != null) {
+                results.add(new ScoredPosting(rarePosting.getPostId(), rarePosting, commonPosting));
+            }
+            checked++;
+        }
+        
+        return results;
+    }
+}
+```
+
+**Stop Word Impact**:
+```
+Without stop word optimization:
+  Query: "the birthday party"
+  "the" posting list: 95 BILLION postings (95% of all docs)
+  "birthday" posting list: 1M postings
+  "party" posting list: 2M postings
+  Intersection: must scan 95B entries → IMPOSSIBLE in < 500ms
+
+With stop word optimization:
+  Remove "the" (Tier 1 always-remove)
+  Intersect "birthday" (1M) ∩ "party" (2M) → O(3M) → 30ms ✓
+
+For phrase "to be or not to be":
+  Keep all words (phrase mode)
+  Start with rarest: "be" (only 100M postings, not 95B like "the")
+  Check top 10K candidates from "be" against other terms
+  Total: < 200ms ✓
+```
+
+---
+
+### Deep Dive 14: Index Compaction & Garbage Collection
+
+**The Problem**: Posts get deleted or edited. The inverted index still contains their postings, wasting space and returning stale results. We need periodic garbage collection without rebuilding the entire index.
+
+```java
+public class IndexCompactionService {
+
+    /**
+     * Index maintenance: handle deleted/edited posts and reclaim space.
+     * 
+     * Three operations:
+     *   1. Tombstone: mark a posting as deleted (fast, lazy)
+     *   2. Compaction: merge SSTables and physically remove tombstoned postings
+     *   3. Re-indexing: for edited posts, delete old postings + add new ones
+     */
+    
+    // Tombstone set: postIds that have been deleted but not yet compacted out
+    private final ConcurrentHashMap<Long, Instant> tombstones = new ConcurrentHashMap<>();
+    
+    /** Mark a post as deleted (fast — just add to tombstone set) */
+    public void deletePost(long postId) {
+        tombstones.put(postId, Instant.now());
+        
+        // Also delete from hot index immediately
+        hotIndex.removePost(postId);
+        
+        // For warm/cold indexes: tombstone will be applied during compaction
+        metrics.counter("index.tombstone.added").increment();
+    }
+    
+    /** Handle post edit: delete old postings, index new content */
+    public void updatePost(long postId, String oldContent, String newContent) {
+        // Find which terms changed
+        Set<String> oldTerms = new HashSet<>(tokenizer.tokenize(oldContent));
+        Set<String> newTerms = new HashSet<>(tokenizer.tokenize(newContent));
+        
+        Set<String> removedTerms = new HashSet<>(oldTerms);
+        removedTerms.removeAll(newTerms);
+        
+        Set<String> addedTerms = new HashSet<>(newTerms);
+        addedTerms.removeAll(oldTerms);
+        
+        // Remove postings for removed terms
+        for (String term : removedTerms) {
+            hotIndex.removePosting(term, postId);
+        }
+        
+        // Add postings for new terms
+        Map<String, List<Integer>> newPositions = tokenizer.tokenizeWithPositions(newContent);
+        for (String term : addedTerms) {
+            List<Integer> positions = newPositions.get(term);
+            if (positions != null) {
+                float tf = (float) positions.size() / newTerms.size();
+                hotIndex.addPosting(term, new Posting(postId, positions, Instant.now(), tf));
+            }
+        }
+        
+        metrics.counter("index.posts.updated").increment();
+    }
+    
+    /**
+     * Compaction: merge SSTables while filtering out tombstoned postings.
+     * Runs periodically during low-traffic hours.
+     */
+    @Scheduled(cron = "0 0 3 * * *") // 3 AM daily
+    public void runCompaction() {
+        log.info("Starting index compaction. {} tombstones pending", tombstones.size());
+        
+        long removedPostings = 0;
+        long totalPostings = 0;
+        
+        for (SSTable table : warmIndex.getAllTables()) {
+            SSTableWriter writer = new SSTableWriter(table.getId() + "_compacted");
+            
+            for (Map.Entry<String, PostingList> entry : table.iterator()) {
+                String term = entry.getKey();
+                PostingList originalList = entry.getValue();
+                
+                // Filter out tombstoned postings
+                PostingList filteredList = new PostingList(term);
+                for (Posting posting : originalList.getPostings()) {
+                    totalPostings++;
+                    if (tombstones.containsKey(posting.getPostId())) {
+                        removedPostings++;
+                        continue; // Skip deleted post
+                    }
+                    filteredList.addPosting(posting);
+                }
+                
+                if (!filteredList.isEmpty()) {
+                    writer.write(term, filteredList);
+                }
+            }
+            
+            writer.finish();
+            
+            // Atomic swap: replace old table with compacted table
+            warmIndex.replaceTable(table, writer.getSSTable());
+        }
+        
+        // Clear applied tombstones (older than 24h, already compacted)
+        Instant cutoff = Instant.now().minus(Duration.ofHours(24));
+        tombstones.entrySet().removeIf(e -> e.getValue().isBefore(cutoff));
+        
+        log.info("Compaction complete. Removed {}/{} postings ({:.1f}%)", 
+            removedPostings, totalPostings, 
+            100.0 * removedPostings / Math.max(totalPostings, 1));
+        
+        metrics.counter("index.compaction.postings_removed").increment(removedPostings);
+    }
+    
+    /**
+     * Query-time tombstone filtering: when reading from warm/cold index,
+     * filter out any postings that are in the tombstone set.
+     */
+    public PostingList filterTombstones(PostingList rawList) {
+        if (tombstones.isEmpty()) return rawList;
+        
+        PostingList filtered = new PostingList(rawList.getTerm());
+        for (Posting posting : rawList.getPostings()) {
+            if (!tombstones.containsKey(posting.getPostId())) {
+                filtered.addPosting(posting);
+            }
+        }
+        return filtered;
+    }
+}
+```
+
+**Compaction Strategy**:
+```
+Writes:
+  New post → add postings to hot index (in-memory)
+  Deleted post → add to tombstone set (instant) + remove from hot index
+  Edited post → diff old/new terms, update hot index
+
+Compaction (daily at 3 AM):
+  For each warm SSTable:
+    1. Read all postings
+    2. Skip postings with tombstoned docIds
+    3. Write surviving postings to new SSTable
+    4. Atomic swap old → new table
+    5. Delete old SSTable file
+
+Impact:
+  ~1% of posts deleted per day
+  ~0.5% edited per day
+  Compaction removes ~1.5% of postings per day
+  Keeps index lean and results fresh
+
+Query-time safety:
+  Between compaction runs, tombstone set is checked at query time
+  O(1) hash lookup per posting → negligible overhead for small tombstone sets
+  Tombstone set typically < 10M entries (5 MB in memory)
+```
+
+---
+
+## 📐 Index Sizing Deep Dive
+
+### Memory & Storage Breakdown by Tier
+
+```
+HOT INDEX (In-Memory):
+  Posts covered: last 72 hours = 1.5B posts
+  Terms per post: 30 (after stop word removal)
+  Total postings: 1.5B × 30 = 45B postings
+  Per posting: 24 bytes (docId + positions + metadata)
+  Raw size: 45B × 24 = 1.08 TB
+  With overhead (HashMap, object headers): ~1.5 TB
+  Distributed: 50 nodes × 30 GB each
+  
+  Term dictionary: ~5M unique terms in 72h window
+  Per term entry: 32 bytes (term hash + pointer)
+  Dictionary size: 5M × 32 = 160 MB per node (trivial)
+
+WARM INDEX (SSD SSTable):
+  Posts covered: 72h to 30 days = ~13.5B posts
+  Total postings: 13.5B × 30 = 405B postings
+  Compressed (VarByte): 405B × 3.5 bytes avg = ~1.4 TB
+  Bloom filters: one per SSTable, ~10 MB each × 100 SSTables = 1 GB
+  Distributed: 100 nodes × 14 GB each
+  
+  SSTable format:
+    [Bloom Filter | Term Dictionary | Posting Lists (compressed)]
+    Bloom filter: 10 MB, 1% FPR
+    Term dictionary: B-tree index, ~50 MB per SSTable
+    Posting lists: variable-length, VarByte encoded
+
+COLD INDEX (S3 + Local Cache):
+  Posts covered: 30 days to all time = ~86.5B posts
+  Total postings: 86.5B × 30 = 2.6T postings
+  Compressed: 2.6T × 3.5 bytes = ~9.1 TB
+  Stored as: Parquet-like columnar files on S3
+  Local SSD cache: 2 TB per node (LRU, caches frequently accessed terms)
+  
+  Access pattern:
+    Term "birthday" in cold → likely cached (popular term)
+    Term "xyzabc123" in cold → cache miss → S3 fetch (~200ms)
+    Average cold query: ~500ms (cache hit) to ~2s (cache miss)
+```
+
+### Term Frequency Distribution (Zipf's Law)
+
+```
+Zipf's law: the frequency of a term is inversely proportional to its rank.
+
+Rank 1:    "the"      → 95B postings (in 95% of all docs)
+Rank 10:   "people"   → 20B postings
+Rank 100:  "birthday" → 1B postings
+Rank 1000: "astronaut"→ 50M postings
+Rank 10000:"zucchini" → 500K postings
+Rank 100K: "supercalifragilistic" → 5K postings
+
+Implication for search:
+  - Top 100 terms make up ~50% of all postings → handle as stop words
+  - Middle 10K terms handle ~40% → main search terms, well-cached
+  - Tail 10B terms handle ~10% → rare queries, often cold index
+  
+  - 80% of search queries contain terms ranked 100-10,000 (sweet spot)
+  - These terms have posting lists of 1M-1B entries → manageable
+```
+
+---
+
+## 🔄 Post Edit & Delete Consistency
+
+### Consistency Model for Index Updates
+
+```
+Scenario: User edits a post (changes "birthday party" to "wedding celebration")
+
+Timeline:
+  T=0:   User saves edit
+  T=10ms: Post DB updated (source of truth)
+  T=50ms: Kafka event "post-updated" published
+  T=200ms: Indexer receives event
+  T=300ms: Hot index updated (remove "birthday"+"party", add "wedding"+"celebration")
+  T=500ms: New content searchable ✓
+  
+  Warm/Cold indexes:
+    Still contain "birthday party" postings for this post
+    Query-time tombstone filtering removes stale results
+    Next compaction (3 AM) physically removes stale postings
+
+Guarantee:
+  - Hot index is always up-to-date (< 1 second)
+  - Warm/cold may return stale results until tombstone check filters them
+  - No window where BOTH old and new content match (atomic update in hot index)
+```
+
+### Delete Propagation
+
+```
+Scenario: User deletes a post
+
+T=0:     User clicks "Delete"
+T=10ms:  Post DB marks post as deleted
+T=50ms:  Kafka event "post-deleted" published
+T=200ms: Indexer adds postId to tombstone set
+T=200ms: Hot index: all postings for this post removed immediately
+T=200ms: Search for this post's content → no results ✓
+
+Warm/Cold:
+  Postings still exist on disk
+  Query-time: tombstone check filters them out
+  Daily compaction: physically removes from disk
+
+Memory for tombstones:
+  5M deletes/day × 8 bytes per postId = 40 MB/day
+  Cleared after 24h (post-compaction)
+  Max tombstone set: ~40 MB → trivial
+```
+
+---
+
+## 🏗️ Operational Considerations
+
+### Index Rebuild Strategy
+
+```
+Scenario: Index corruption, need to rebuild from scratch
+
+Option 1: Full rebuild from Post DB
+  - Read all 100B posts from PostgreSQL
+  - Tokenize and build index from scratch
+  - Duration: ~48 hours at 500K posts/sec
+  - Problem: 48 hours of no search → unacceptable
+
+Option 2: Incremental rebuild from Kafka
+  - Kafka retains 7 days of events
+  - Rebuild last 7 days from Kafka replay → covers hot + warm
+  - Cold index: restore from S3 backup (snapshots taken weekly)
+  - Duration: ~4 hours for hot/warm, ~2 hours for cold restore
+  - Search degraded but functional within 4 hours
+
+Option 3: Replica promotion
+  - Each shard has 3 replicas
+  - If 1 replica is corrupted, the other 2 are fine
+  - Promote healthy replica to primary
+  - Rebuild corrupted replica from Kafka
+  - Duration: zero downtime (handled automatically)
+```
+
+### Capacity Planning
+
+```
+Growth projections (next 2 years):
+  Posts: 100B → 200B (2x)
+  Search QPS: 50K → 100K (2x)
+  Index size: 30 TB → 60 TB
+  
+Scaling plan:
+  Hot index: 50 nodes → 100 nodes (add nodes, rebalance shards)
+  Warm index: 100 nodes → 200 nodes
+  Cold index: S3 (unlimited, just add more data)
+  Query service: 50 pods → 100 pods (stateless, horizontal)
+  
+Cost scaling:
+  Current: ~$150K/month
+  At 2x: ~$280K/month (not 2x due to efficiency improvements)
+  Per-query cost: ~$0.003 → ~$0.003 (stays constant due to caching)
 ## 📊 Summary: Key Trade-offs
 
 | Decision | Chosen | Why |
@@ -1364,4 +1822,4 @@ public class SearchResultCache {
 **Created**: February 2026
 **Framework**: Hello Interview (6-step)
 **Estimated Interview Time**: 45-60 minutes
-**Deep Dives**: 12 topics (choose 2-3 based on interviewer interest)
+**Deep Dives**: 14 topics (choose 2-3 based on interviewer interest)

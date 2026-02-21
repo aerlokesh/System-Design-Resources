@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lokesh Singh — Resume</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  @page { size: A4; margin: 8mm 10mm; }
+
+  body {
+    font-family: Calibri, Arial, Helvetica, sans-serif;
+    color: #111;
+    background: #f5f5f5;
+    font-size: 9.5pt;
+    line-height: 1.35;
+  }
+
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 16px auto;
+    background: #fff;
+    padding: 14px 18px;
+    box-shadow: 0 1px 10px rgba(0,0,0,0.08);
+  }
+
+  @media print {
+    body { background: white; }
+    .page { margin: 0; box-shadow: none; padding: 0; }
+  }
+
+  /* Name */
+  h1 {
+    font-size: 22pt;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 2px;
+    color: #000;
+  }
+
+  /* Headline under name */
+  .headline {
+    text-align: center;
+    font-size: 10pt;
+    color: #333;
+    margin-bottom: 4px;
+    font-weight: 400;
+  }
+
+  /* Contact line */
+  .contact {
+    text-align: center;
+    font-size: 9.5pt;
+    color: #333;
+    margin-bottom: 12px;
+  }
+  .contact a { color: #000; text-decoration: none; }
+  .contact .sep { margin: 0 5px; color: #999; }
+
+  /* Section headers - exact ATS names, no symbols */
+  h2 {
+    font-size: 11pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #000;
+    padding-bottom: 2px;
+    margin: 8px 0 4px 0;
+    color: #000;
+  }
+
+  /* Skills - pipe separated for ATS */
+  .skills-line {
+    font-size: 10pt;
+    margin-bottom: 2px;
+    line-height: 1.4;
+  }
+  .skills-line strong { font-weight: 700; }
+
+  /* Job block */
+  .job { margin-bottom: 6px; }
+
+  .job-row1 {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .job-title { font-weight: 700; font-size: 10.5pt; }
+  .job-dates { font-size: 9.5pt; color: #444; white-space: nowrap; }
+
+  .job-row2 {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 3px;
+  }
+  .job-company { font-style: italic; color: #222; }
+  .job-loc { font-size: 9pt; color: #555; }
+
+  ul { padding-left: 14px; margin-top: 1px; }
+  ul li {
+    font-size: 9.5pt;
+    margin-bottom: 1px;
+    line-height: 1.3;
+  }
+
+  /* Education */
+  .edu-row1 {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .edu-school { font-weight: 700; font-size: 10.5pt; }
+  .edu-dates { font-size: 9.5pt; color: #444; }
+  .edu-degree { font-style: italic; color: #222; margin-bottom: 2px; }
+
+  .awards-item { margin-bottom: 3px; font-size: 10pt; }
+  .awards-item strong { font-weight: 700; }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <!-- NAME -->
+  <h1>Lokesh Singh</h1>
+
+  <!-- HEADLINE (replaces generic "Summary" per FAANG best practice) -->
+  <div class="headline">Software Engineer at Amazon with 4 years of experience building distributed systems and launching international marketplaces</div>
+
+  <!-- CONTACT -->
+  <div class="contact">
+    <a href="mailto:aerlokesh@gmail.com">aerlokesh@gmail.com</a>
+    <span class="sep">|</span>
+    +34 610 784 634
+    <span class="sep">|</span>
+    Madrid, Spain
+    <span class="sep">|</span>
+    <a href="https://www.linkedin.com/in/lokeshsingh-sde/">linkedin.com/in/lokeshsingh-sde</a>
+  </div>
+
+  <!-- SKILLS (pipe-separated, ATS-parseable) -->
+  <h2>Skills</h2>
+  <div class="skills-line"><strong>Languages:</strong> Java | Python | TypeScript | SQL</div>
+  <div class="skills-line"><strong>Cloud:</strong> AWS , GCP </div>
+  <div class="skills-line"><strong>Frameworks:</strong> React.js | Spring Boot | Serverless</div>
+  <div class="skills-line"><strong>Design:</strong> Distributed Systems | Microservices | Event-Driven Architecture | REST APIs | HLD | LLD</div>
+  <div class="skills-line"><strong>Data:</strong> Apache Spark | ETL Pipelines | Map-Reduce</div>
+  <div class="skills-line"><strong>Tools:</strong> Git | CI/CD | CDK </div>
+
+  <!-- WORK EXPERIENCE -->
+  <h2>Work Experience</h2>
+
+  <!-- Amazon SDE 2 -->
+  <div class="job">
+    <div class="job-row1">
+      <span class="job-title">Software Development Engineer 2 (SDE 2)</span>
+      <span class="job-dates">Nov 2024 - Present</span>
+    </div>
+    <div class="job-row2">
+      <span class="job-company">Amazon</span>
+      <span class="job-loc">Madrid, Spain</span>
+    </div>
+    <ul>
+      <li>Leading technical workstreams to expand Amazon Business to new marketplaces — search optimization, ordering flows, cross-platform integrations</li>
+      <li>Building reusable, config-driven solutions that decouple country-specific logic from core business flows</li>
+    </ul>
+  </div>
+
+  <!-- Amazon SysDev 2 -->
+  <div class="job">
+    <div class="job-row1">
+      <span class="job-title">System Development Engineer 2 (SysDev 2)</span>
+      <span class="job-dates">Sep 2024 - Nov 2024</span>
+    </div>
+    <div class="job-row2">
+      <span class="job-company">Amazon</span>
+      <span class="job-loc">Madrid, Spain</span>
+    </div>
+    <ul>
+      <li>Delivered 6 features end-to-end for Amazon Business Mexico launch — customer acquisition, seller tools, checkout, order management</li>
+      <li>Migrated order history to a new stack with region-aware API contracts, eliminating cross-marketplace regressions</li>
+      <li>Resolved critical post-launch checkout and B2B pricing defects ahead of Mexico's largest sales event</li>
+      <li>Recognized with the org-wide "Big Deal" Award for Deliver Results</li>
+    </ul>
+  </div>
+
+  <!-- Amazon SysDev 1 -->
+  <div class="job">
+    <div class="job-row1">
+      <span class="job-title">System Development Engineer 1 (SysDev 1)</span>
+      <span class="job-dates">Oct 2022 - Sep 2024</span>
+    </div>
+    <div class="job-row2">
+      <span class="job-company">Amazon</span>
+      <span class="job-loc">India</span>
+    </div>
+    <ul>
+      <li>Built a serverless audit automation platform (Lambda, DynamoDB, SQS, Step Functions, React) monitoring 1,000+ services for operational readiness</li>
+      <li>Eliminated 26,000 hours/year of manual reporting by creating a metrics dashboard for 500+ teams using map-reduce over 25GB+ data in Redshift</li>
+      <li>Delivered a service health scorecard for senior leadership with async SQS+Lambda computation and React UI</li>
+      <li>Enabled audit access across 22,000+ AWS accounts via internal identity service integration</li>
+      <li>Mentored 3 interns, all received full-time offers. Shipped 330+ code reviews, 400K+ lines of code</li>
+    </ul>
+  </div>
+
+  <!-- Deutsche Bank FT -->
+  <div class="job">
+    <div class="job-row1">
+      <span class="job-title">Technology Analyst</span>
+      <span class="job-dates">Mar 2022 - Oct 2022</span>
+    </div>
+    <div class="job-row2">
+      <span class="job-company">Deutsche Bank, RFT (Risk, Finance and Treasury)</span>
+      <span class="job-loc">Pune, India</span>
+    </div>
+    <ul>
+      <li>Improved financial data integrity by building reconciliation system components that match, validate, and reconcile transaction data across trading platforms and risk management systems</li>
+      <li>Reduced manual break investigation time by developing automated break detection and resolution workflows that identify discrepancies between front-office, middle-office, and back-office systems</li>
+      <li>Ensured regulatory compliance by building data processing pipelines for cross-system financial data validation using Apache Spark and ETL pipelines</li>
+      <li>Improved operational visibility by implementing exception management dashboards for monitoring reconciliation status, break aging, and resolution metrics</li>
+    </ul>
+  </div>
+
+  <!-- Deutsche Bank Intern -->
+  <div class="job">
+    <div class="job-row1">
+      <span class="job-title">Technology Intern</span>
+      <span class="job-dates">May 2021 - Jul 2021</span>
+    </div>
+    <div class="job-row2">
+      <span class="job-company">Deutsche Bank, RFT (Risk, Finance and Treasury)</span>
+      <span class="job-loc">Pune, India</span>
+    </div>
+    <ul>
+      <li>Automated candidate screening by developing an NLP-based Resume Screener that uses text extraction, entity recognition, TF-IDF, and cosine similarity to rank candidates against job descriptions</li>
+      <li>Built end-to-end pipeline: resume parsing, structured data extraction, similarity scoring, and ranked candidate output, resulting in a full-time return offer</li>
+    </ul>
+  </div>
+
+  <!-- EDUCATION -->
+  <h2>Education</h2>
+  <div class="job">
+    <div class="edu-row1">
+      <span class="edu-school">Motilal Nehru National Institute of Technology (NIT Allahabad)</span>
+      <span class="edu-dates">2018 - 2022</span>
+    </div>
+    <div class="edu-degree">Bachelor of Technology (B.Tech), Computer Science and Engineering | GPA: 9.05/10</div>
+    <ul>
+      <li>Ranked 11th in a class of 200+ CS students | Gold Medalist in multiple courses | Computer Coding Club member</li>
+    </ul>
+  </div>
+
+  <!-- AWARDS -->
+  <h2>Awards</h2>
+  <div class="awards-item"><strong>"Big Deal" Award for Deliver Results</strong> - Amazon Business, 2024 | Recognized for delivering critical workstreams for Amazon Business Mexico launch</div>
+  <div class="awards-item"><strong>Exceeds Expectations Rating</strong> - Amazon, Q1 2024</div>
+  <div class="awards-item"><strong>JEE Advanced and JEE Mains School Topper</strong> - 2018 | Top 0.05 percentile among 1,000,000+ candidates</div>
+
+</div>
+
+</body>
+</html>
