@@ -6,7 +6,7 @@ This repository contains hands-on implementations of various system design conce
 
 - **redis-implementation/** - Complete Redis learning with examples (5 files, 40+ examples)
 - **dynamodb-implementation/** - DynamoDB with real-world patterns and interview prep
-- More implementations coming soon...
+- **java-implementations/** - 12 core system design concepts in Java (zero dependencies)
 
 ## Implementations
 
@@ -50,6 +50,36 @@ Learn AWS DynamoDB with production patterns:
 
 ---
 
+### 3. Java System Design Implementations
+**Status:** ✅ Complete (12 implementations)
+
+Self-contained Java implementations of core system design building blocks — no external dependencies, just compile and run:
+
+| # | Implementation | Key Concepts |
+|---|---------------|-------------|
+| 1 | **URL Shortener** | Base62 encoding, collision handling, deduplication |
+| 2 | **Rate Limiter** | Token Bucket, Sliding Window, Fixed Window, Leaky Bucket |
+| 3 | **Consistent Hashing** | Hash ring, virtual nodes, minimal redistribution |
+| 4 | **LRU Cache** | O(1) get/put, TTL support, LFU variant |
+| 5 | **Message Queue** | FIFO, Pub/Sub, DLQ, priority queue, consumer groups |
+| 6 | **Load Balancer** | Round Robin, Weighted, Least Connections, IP Hash, Health checks |
+| 7 | **Distributed KV Store** | Partitioning, replication, vector clocks, quorum |
+| 8 | **Bloom Filter** | Probabilistic membership, counting variant, false positive analysis |
+| 9 | **Circuit Breaker** | Closed/Open/Half-Open, sliding window, registry |
+| 10 | **Notification System** | Multi-channel, priority, rate limiting, retry, templates |
+| 11 | **Task Scheduler** | Delayed execution, priority, DAG dependencies, retry |
+| 12 | **API Gateway** | Routing, auth middleware, rate limiting, CORS, logging |
+
+**Quick Start:**
+```bash
+cd java-implementations
+javac 01_URLShortener.java && java URLShortener
+```
+
+[📖 View Java Implementations →](java-implementations/)
+
+---
+
 ## Prerequisites
 
 - Python 3.8+
@@ -57,6 +87,15 @@ Learn AWS DynamoDB with production patterns:
 - AWS CLI (optional, for cloud deployments)
 
 ## Quick Start
+
+### Java
+```bash
+# No setup needed — just Java 11+
+cd java-implementations
+javac 03_ConsistentHashing.java && java ConsistentHashing
+javac 08_BloomFilter.java && java BloomFilter
+# ... any of the 12 files
+```
 
 ### Redis
 ```bash
