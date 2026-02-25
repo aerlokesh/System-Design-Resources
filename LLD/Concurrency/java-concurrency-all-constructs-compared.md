@@ -47,6 +47,12 @@
 
 ### 1.1 `synchronized` vs `ReentrantLock`
 
+**What is `synchronized`?** A built-in Java keyword that makes a block of code (or entire method) mutually exclusive — only one thread can execute it at a time. When a thread enters a `synchronized` block, it acquires an **intrinsic lock** (also called a **monitor**) on the specified object. Every other thread trying to enter that same block waits until the first thread exits. The lock is automatically released when the block exits, even if an exception is thrown. It's the simplest way to make code thread-safe.
+
+**What is `ReentrantLock`?** An explicit lock from `java.util.concurrent.locks` that does the same thing as `synchronized` — mutual exclusion — but gives you **manual control**. You call `lock()` to acquire and `unlock()` to release. The word "reentrant" means the **same thread** can acquire the lock multiple times without deadlocking itself (it just increments a hold count). The key advantage over `synchronized` is flexibility: you can try to acquire without blocking (`tryLock()`), set timeouts, make it fair (FIFO ordering), and create multiple wait-conditions.
+
+**Why two options?** `synchronized` is sufficient for 90% of cases and is simpler (auto-releases, no `finally` needed). `ReentrantLock` exists for the 10% where you need advanced features like non-blocking attempts, timeouts, or multiple condition variables.
+
 | Feature | `synchronized` | `ReentrantLock` |
 |---|---|---|
 | **Type** | JVM keyword (intrinsic lock) | Explicit `java.util.concurrent` class |
@@ -84,6 +90,8 @@ try {
 
 ### 1.2 `ReentrantLock` vs `ReentrantReadWriteLock`
 
+**What is `ReentrantReadWriteLock`?** A lock that splits access into **two modes**: a **read lock** that multiple threads can hold simultaneously (for reading shared data), and a **write lock** that only one thread can hold (for modifying data), which also blocks all readers. The insight: if 95% of your operations just *read* data, why should readers block each other? With a regular `ReentrantLock`, they do. With `ReadWriteLock`, readers run concurrently — only writers need exclusive access. Think of it like a library: many people can read books at the same time, but the librarian needs everyone out to rearrange shelves.
+
 | Feature | `ReentrantLock` | `ReentrantReadWriteLock` |
 |---|---|---|
 | **Read concurrency** | ❌ One thread at a time | ✅ Multiple readers simultaneously |
@@ -113,6 +121,8 @@ finally { rwLock.writeLock().unlock(); }
 
 ### 1.3 `ReentrantReadWriteLock` vs `StampedLock`
 
+**What is `StampedLock`?** A lock (Java 8+) that adds an **optimistic read** mode on top of the read/write model. With `ReadWriteLock`, even readers acquire a real lock (which blocks writers). With `StampedLock`, you can do an **optimistic read** that acquires no lock at all — it just grabs a "stamp" (a version number). After reading, you check: "has anyone written since I got my stamp?" If no → your data is valid, no lock was ever held. If yes → fall back to a real read lock. This is dramatically faster when writes are rare because readers never block anything. The trade-off: it's not reentrant and has no `Condition` support, so it's harder to use correctly.
+
 | Feature | `ReentrantReadWriteLock` | `StampedLock` (Java 8+) |
 |---|---|---|
 | **Reentrant** | ✅ Yes | ❌ No |
@@ -141,6 +151,10 @@ if (!sl.validate(stamp)) {    // Was there a write in between?
 ---
 
 ### 1.4 `volatile` vs `synchronized` vs `Atomic*`
+
+**What is `volatile`?** A Java keyword you put on a field to guarantee that **every thread sees the most recent write**. Without `volatile`, threads can cache field values in CPU registers/caches and never see updates from other threads. `volatile` forces reads/writes to go through main memory. **But** it only makes *single reads and writes* atomic — compound operations like `i++` (read → add → write = 3 steps) are still broken under concurrency.
+
+**What is `AtomicInteger`?** A class that wraps an `int` and provides atomic compound operations (like `incrementAndGet()`, `compareAndSet()`) without using locks. Internally, it uses **CAS (Compare-And-Swap)** — a CPU-level instruction that atomically says "if the value is still X, change it to Y, otherwise try again." This is **lock-free**: no thread ever blocks. Threads that lose the CAS race simply spin and retry. Great for counters, sequence generators, and any single-variable updates under moderate contention.
 
 | Feature | `volatile` | `synchronized` | `AtomicInteger` |
 |---|---|---|---|
@@ -210,6 +224,10 @@ try {
 ---
 
 ### 2.2 `CountDownLatch` vs `CyclicBarrier`
+
+**What is `CountDownLatch`?** A one-shot synchronization aid that lets one or more threads wait until a set of operations in other threads completes. You create it with a count (say 3), various threads call `countDown()` as they finish, and any waiting thread blocked on `await()` is released when the count hits zero. It's **one-shot**: once the count reaches zero, it stays there — you can't reset it. Use it for "don't start until all services are ready" or "wait for all workers to finish."
+
+**What is `CyclicBarrier`?** A reusable synchronization point where a fixed number of threads wait for **each other**. Unlike `CountDownLatch` (where some threads count down and others wait), with `CyclicBarrier` the **same threads** that call `await()` are the ones that wait. Once all N threads arrive at the barrier, they're all released simultaneously and the barrier resets automatically for the next round. Use it for iterative algorithms where threads process a phase, sync up, then proceed to the next phase.
 
 | Feature | `CountDownLatch` | `CyclicBarrier` |
 |---|---|---|
@@ -323,6 +341,10 @@ String fromThread1 = exchanger.exchange("Hello from T2");
 
 ### 3.1 `ExecutorService` — The Interface
 
+**What is `ExecutorService`?** An abstraction that manages a **thread pool** — a reusable set of threads that execute submitted tasks. Instead of creating `new Thread()` for every task (expensive: each thread costs ~1 MB stack memory + OS overhead), you submit tasks to an `ExecutorService`, which assigns them to its pre-created threads. When a task finishes, the thread goes back to the pool and picks up the next task. This is how virtually all real Java applications manage concurrency: you control the number of threads, the queue for waiting tasks, and what happens when the system is overloaded.
+
+**What is a thread pool?** A fixed set of worker threads that sit idle waiting for work. Tasks are queued and dispatched to available threads. Benefits: (1) reuse threads instead of creating/destroying them, (2) bound the total number of threads to prevent resource exhaustion, (3) decouple task submission from execution. The `ThreadPoolExecutor` class is the implementation you configure directly in production.
+
 ```java
 ExecutorService executor = Executors.newFixedThreadPool(4);
 
@@ -375,6 +397,59 @@ ThreadPoolExecutor executor = new ThreadPoolExecutor(
 ---
 
 ### 3.4 `Future` vs `CompletableFuture`
+
+**What is `Future`?** A handle to a result that will be available *sometime in the future*. You submit a `Callable` to an `ExecutorService`, get back a `Future`, and call `future.get()` to wait (block) for the result. That's it — you can only block and wait. You can't chain actions, combine results, or react when it completes.
+
+**What is `CompletableFuture`?** A **promise** — a composable, non-blocking container for an asynchronous result. Think of it as a pipeline: you describe *what should happen* when the result arrives (`thenApply`), *what to do if it fails* (`exceptionally`), and *how to combine* multiple async results (`thenCombine`, `allOf`) — all without blocking any thread. The callbacks fire automatically when the result becomes available.
+
+**Why it exists:** `Future.get()` blocks the calling thread, which defeats the purpose of async programming. If you call 3 services with `Future`, you block waiting for each one. With `CompletableFuture`, you describe the entire async workflow as a chain, and the framework runs it on a thread pool (default: `ForkJoinPool.commonPool()`) without you ever blocking.
+
+**Mental model:**
+```
+Future:              "Here's a ticket. Come back later and WAIT in line for your result."
+CompletableFuture:   "Here's a ticket. Tell me what to do when it's ready — I'll call you."
+```
+
+**Core concept — it's a monad-like chain:**
+```java
+// Think of it like Stream operations, but for async results:
+CompletableFuture.supplyAsync(() -> fetchUser(userId))    // Step 1: async call
+    .thenApply(user -> user.getEmail())                    // Step 2: transform (when Step 1 done)
+    .thenCompose(email -> sendEmailAsync(email))           // Step 3: another async call (flatMap)
+    .thenAccept(result -> log.info("Sent: " + result))    // Step 4: consume final result
+    .exceptionally(ex -> { log.error("Failed", ex); return null; });  // Handle any error in chain
+// NOTHING BLOCKS. The chain describes what happens; execution is handled by the thread pool.
+```
+
+**The key methods explained:**
+```
+Creating:
+  supplyAsync(Supplier)          — Run a function async, return CF with result
+  runAsync(Runnable)             — Run a task async, return CF<Void>
+  completedFuture(value)         — Already-completed CF (for testing/mocking)
+
+Transforming (when this CF completes):
+  thenApply(Function)            — Transform result: A → B (like Stream.map)
+  thenCompose(Function)          — Chain another async call: A → CF<B> (like Stream.flatMap)
+  thenAccept(Consumer)           — Consume result, return CF<Void>
+  thenRun(Runnable)              — Run action after completion, ignores result
+
+Combining multiple CFs:
+  thenCombine(other, BiFunction) — When BOTH complete, combine their results
+  allOf(cf1, cf2, cf3...)        — Complete when ALL complete (returns CF<Void>)
+  anyOf(cf1, cf2, cf3...)        — Complete when FIRST completes
+
+Error handling:
+  exceptionally(Function)        — Recover from exception, provide fallback value
+  handle(BiFunction)             — Handle both success and failure (like try-catch-finally)
+  whenComplete(BiConsumer)       — Side-effect on completion (doesn't change result)
+
+Manual completion:
+  complete(value)                — Manually set the result (for custom async patterns)
+  completeExceptionally(ex)      — Manually set an exception
+```
+
+**Comparison Table:**
 
 | Feature | `Future` | `CompletableFuture` |
 |---|---|---|
@@ -461,6 +536,10 @@ long result = pool.invoke(new SumTask(array, 0, array.length));
 
 ### 4.1 Maps
 
+**What is `ConcurrentHashMap`?** The standard thread-safe `Map` for concurrent Java programs. Unlike `Hashtable` (which locks the entire table on every operation) or `synchronizedMap` (which wraps a `HashMap` with a single global lock), `ConcurrentHashMap` uses **per-bucket locking** (Java 8+): it only locks the specific bucket being modified, so operations on different buckets proceed in parallel. Reads are entirely **lock-free** (using `volatile` reads). Most importantly, it provides **atomic compound operations** like `computeIfAbsent()`, `merge()`, and `putIfAbsent()` that are impossible to do safely with a regular `HashMap` + external synchronization.
+
+**What is `ConcurrentSkipListMap`?** A thread-safe **sorted** map (implements `NavigableMap`) based on a skip list data structure. Unlike `ConcurrentHashMap` (unordered, O(1)), `ConcurrentSkipListMap` maintains keys in sorted order with O(log n) operations. It uses **lock-free CAS** internally. Use it when you need a concurrent map *with ordering* — e.g., range queries, floor/ceiling key lookups, or an ordered leaderboard.
+
 | Collection | Thread-Safe | Null Keys/Values | Lock Granularity | Performance |
 |---|---|---|---|---|
 | `HashMap` | ❌ | ✅ null key + values | N/A | Fastest (single-threaded) |
@@ -504,6 +583,8 @@ Bucket N: [Node]
 
 ### 4.2 Lists
 
+**What is `CopyOnWriteArrayList`?** A thread-safe `List` where every modification (add, set, remove) creates a **fresh copy of the entire underlying array**. Reads never lock — they just read the current snapshot of the array. This means reads are blazing fast (no synchronization at all), but writes are expensive (O(n) array copy). It also means iterators never throw `ConcurrentModificationException` because they iterate over a snapshot. Use it only when reads vastly outnumber writes (event listener lists, configuration, observer patterns) and the list is small.
+
 | Collection | Thread-Safe | Read Perf | Write Perf | Iterator |
 |---|---|---|---|---|
 | `ArrayList` | ❌ | O(1) | O(1) amortized | Fail-fast |
@@ -530,6 +611,10 @@ String s = list.get(0); // No lock needed → O(1) 🚀
 ---
 
 ### 4.3 Queues
+
+**What is a `BlockingQueue`?** A thread-safe queue that **blocks** the calling thread when the operation can't proceed immediately: `put()` blocks when the queue is full (backpressure on producers), `take()` blocks when the queue is empty (consumers wait for work). This is the backbone of the **producer-consumer pattern** — the most fundamental concurrency pattern in Java. The blocking behavior eliminates the need for busy-waiting or manual `wait/notify` coordination.
+
+**What is `SynchronousQueue`?** A special `BlockingQueue` with **zero capacity** — it doesn't store any elements. A `put()` blocks until another thread calls `take()`, and vice versa. It's a direct hand-off mechanism. `CachedThreadPool` uses it internally: when a task is submitted, it's handed directly to a waiting thread — if no thread is waiting, a new one is created.
 
 | Queue | Bounded | Blocking | Lock-Free | Ordering | Use Case |
 |---|---|---|---|---|---|
@@ -565,6 +650,8 @@ sq.take();      // Blocks UNTIL a producer calls put()
 
 ### 5.1 The Atomic Family
 
+**What are Atomic variables?** A family of classes (`AtomicInteger`, `AtomicLong`, `AtomicReference`, etc.) that provide **lock-free, thread-safe** operations on single values using **CAS (Compare-And-Swap)** — a hardware CPU instruction. CAS works like: "if the current value is `expected`, set it to `newValue` and return true; otherwise return false and I'll try again." Since it's a single CPU instruction, it's atomic — no lock needed. This makes them dramatically faster than `synchronized` for simple operations like counters, but they only work for single-variable updates (not compound logic across multiple fields).
+
 | Class | What It Wraps | Key Operations |
 |---|---|---|
 | `AtomicInteger` | `int` | `incrementAndGet()`, `compareAndSet()`, `updateAndGet()` |
@@ -576,6 +663,8 @@ sq.take();      // Blocks UNTIL a producer calls put()
 | `AtomicMarkableReference<V>` | Reference + boolean mark | Soft-delete patterns |
 
 ### 5.2 `AtomicInteger` vs `LongAdder`
+
+**What is `LongAdder`?** A high-performance counter (Java 8+) designed for situations where many threads are incrementing the same counter simultaneously. `AtomicLong` has a problem under high contention: all threads CAS on the *same memory location*, causing constant cache-line bouncing and CAS failures. `LongAdder` solves this by **striping**: it maintains multiple internal cells, and each thread increments a *different cell* (based on thread hash). To read the total, you call `sum()` which adds up all cells. The trade-off: `sum()` gives a slightly approximate result during concurrent updates (exact at rest), and there's no `incrementAndGet()` (you can't get the value back on increment). But throughput can be 2-10x better under high contention.
 
 | Feature | `AtomicInteger` | `LongAdder` (Java 8+) |
 |---|---|---|
@@ -633,6 +722,12 @@ ref.compareAndSet("A", "C", 0, 1);  // Only succeeds if value=A AND stamp=0
 ---
 
 ## 6. THE `wait/notify` vs `Condition` vs `Lock` COMPARISON
+
+**What is `wait()/notify()`?** The original Java mechanism for threads to communicate. A thread that calls `obj.wait()` inside a `synchronized(obj)` block releases the lock and goes to sleep until another thread calls `obj.notify()` (wake one) or `obj.notifyAll()` (wake all). The problem: there's only ONE wait-set per object, so you can't distinguish between "waiting because queue is full" and "waiting because queue is empty."
+
+**What is `Condition`?** The modern replacement for `wait/notify`, used with `ReentrantLock`. You create multiple `Condition` objects from a single lock: `notFull = lock.newCondition()`, `notEmpty = lock.newCondition()`. Producers `await()` on `notFull`, consumers `await()` on `notEmpty`. When a consumer takes an item, it signals `notFull` — waking ONLY a producer. This is more efficient and less error-prone than `notifyAll()` which wakes everyone.
+
+**What is `LockSupport`?** The lowest-level thread parking mechanism in Java. `LockSupport.park()` blocks the current thread, `LockSupport.unpark(thread)` unblocks a specific thread. Unlike `wait/notify`, it doesn't require holding a lock and can target a specific thread. You almost never use it directly — it's what frameworks and JDK internals use to build higher-level constructs like `ReentrantLock`, `Phaser`, and `CompletableFuture`.
 
 | Feature | `wait()/notify()` | `Condition` | `LockSupport.park/unpark` |
 |---|---|---|---|
