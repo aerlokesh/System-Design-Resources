@@ -468,6 +468,85 @@ Evaluation: t("key", { count: 3 }, locale="ar-SA")
 
 **The Problem**: 500K strings × 100 locales = 50M entries. We can't send all strings to every client. We must organize strings into small, page-specific bundles served from CDN edge.
 
+```java
+public class BundleService {
+
+    private final RedisTemplate<String, StringBundle> redis;
+    private final TranslationRepository translationRepo;
+    private final CDNClient cdn;
+
+    /**
+     * Build a string bundle for a specific namespace + locale.
+     * Pre-resolves fallbacks so client needs only ONE bundle.
+     */
+    public StringBundle buildBundle(String namespace, String locale) {
+        // Get all source strings for this namespace
+        List<SourceString> sourceStrings = translationRepo.findByNamespace(namespace);
+
+        // Build fallback chain: pt-BR → pt → en
+        List<String> fallbackChain = localeService.getFallbackChain(locale);
+
+        Map<String, String> strings = new LinkedHashMap<>();
+        for (SourceString source : sourceStrings) {
+            // Resolve translation with fallback
+            String translated = resolveWithFallback(source.getStringKey(), fallbackChain);
+            strings.put(source.getStringKey(), translated);
+        }
+
+        // Compute content hash for cache-busting URL
+        String hash = Hashing.murmur3_128()
+            .hashString(strings.toString(), StandardCharsets.UTF_8)
+            .toString().substring(0, 8);
+
+        return StringBundle.builder()
+            .namespace(namespace)
+            .locale(locale)
+            .version(computeVersion(namespace, locale))
+            .strings(strings)
+            .hash(hash)
+            .generatedAt(Instant.now())
+            .build();
+    }
+
+    /**
+     * Resolve a string key using fallback chain.
+     * pt-BR → pt → en. User NEVER sees raw keys.
+     */
+    private String resolveWithFallback(String key, List<String> fallbackChain) {
+        for (String fallbackLocale : fallbackChain) {
+            Translation t = translationRepo.findPublished(key, fallbackLocale);
+            if (t != null) return t.getTranslatedText();
+        }
+        // Final fallback: English source text (guaranteed to exist)
+        return translationRepo.getSourceString(key).getSourceText();
+    }
+
+    /**
+     * Publish bundles to CDN with immutable URLs.
+     * URL includes content hash → new content = new URL → auto cache bust.
+     */
+    public void publishBundles(String namespace, List<String> locales, double rolloutPct) {
+        for (String locale : locales) {
+            StringBundle bundle = buildBundle(namespace, locale);
+            String cdnPath = String.format("/strings/%s.%s.%s.json",
+                namespace, locale, bundle.getHash());
+
+            // Upload to CDN (immutable URL, cache forever)
+            cdn.upload(cdnPath, bundle, Map.of(
+                "Cache-Control", "public, max-age=31536000, immutable"
+            ));
+
+            // Cache in Redis for origin fallback
+            redis.opsForValue().set("bundle:" + namespace + ":" + locale, bundle);
+
+            // Update version pointer (used by clients to check for updates)
+            redis.opsForValue().set("version:" + namespace + ":" + locale,
+                bundle.getVersion() + ":" + bundle.getHash());
+        }
+    }
+}
+```
+
 ```
 Bundle strategy:
   - Strings organized into NAMESPACES by page/feature:
@@ -498,6 +577,74 @@ Pre-warming:
 ### Deep Dive 2: Pluralization Engine — ICU MessageFormat
 
 **The Problem**: English has 2 plural forms (singular/plural). Arabic has 6. Russian has 3 with complex rules. The i18n system must evaluate correct plural form at runtime for any language.
+
+```java
+public class PluralFormatter {
+
+    // CLDR plural rules per language (loaded from Unicode CLDR data)
+    private static final Map<String, Function<Long, PluralCategory>> PLURAL_RULES = Map.of(
+        "en", n -> n == 1 ? PluralCategory.ONE : PluralCategory.OTHER,
+        "ru", n -> {
+            long mod10 = n % 10, mod100 = n % 100;
+            if (mod10 == 1 && mod100 != 11) return PluralCategory.ONE;
+            if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return PluralCategory.FEW;
+            if (mod10 == 0 || (mod10 >= 5 && mod10 <= 9) || (mod100 >= 11 && mod100 <= 14))
+                return PluralCategory.MANY;
+            return PluralCategory.OTHER;
+        },
+        "ar", n -> {
+            if (n == 0) return PluralCategory.ZERO;
+            if (n == 1) return PluralCategory.ONE;
+            if (n == 2) return PluralCategory.TWO;
+            long mod100 = n % 100;
+            if (mod100 >= 3 && mod100 <= 10) return PluralCategory.FEW;
+            if (mod100 >= 11 && mod100 <= 99) return PluralCategory.MANY;
+            return PluralCategory.OTHER;
+        }
+    );
+
+    /**
+     * Format an ICU MessageFormat string with plural rules.
+     * 
+     * Input:  "{count, plural, one {# message} other {# messages}}", count=5, locale="en"
+     * Output: "5 messages"
+     * 
+     * Input:  "{count, plural, one {# сообщение} few {# сообщения} many {# сообщений}}", count=3, locale="ru"
+     * Output: "3 сообщения"
+     */
+    public String format(String icuPattern, Map<String, Object> params, String locale) {
+        // Parse ICU pattern into AST (cached per pattern for performance)
+        ICUMessageAST ast = parseCache.get(icuPattern, () -> ICUParser.parse(icuPattern));
+
+        // For each plural argument: determine the correct plural category
+        for (PluralNode node : ast.getPluralNodes()) {
+            String paramName = node.getArgName(); // "count"
+            long value = ((Number) params.get(paramName)).longValue();
+
+            // Get CLDR plural rule for this locale
+            Function<Long, PluralCategory> rule = PLURAL_RULES.getOrDefault(
+                getBaseLanguage(locale), PLURAL_RULES.get("en"));
+
+            PluralCategory category = rule.apply(value);
+
+            // Select the matching branch from the pattern
+            String branch = node.getBranch(category);
+            if (branch == null) branch = node.getBranch(PluralCategory.OTHER); // fallback
+
+            // Replace # with the actual number
+            String formatted = branch.replace("#", String.valueOf(value));
+            node.setResolved(formatted);
+        }
+
+        // Interpolate remaining {name} placeholders
+        return ast.render(params);
+    }
+
+    private String getBaseLanguage(String locale) {
+        return locale.contains("-") ? locale.split("-")[0] : locale;
+    }
+}
+```
 
 ```
 ICU MessageFormat standard:
