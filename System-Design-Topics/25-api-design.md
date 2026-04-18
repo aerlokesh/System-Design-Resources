@@ -1,7 +1,7 @@
 # 🎯 Topic 25: API Design
 
 > **System Design Interview — Deep Dive**
-> REST vs gRPC vs GraphQL, resource naming, versioning, pagination, error handling, rate limiting headers, and how to design clean, scalable APIs for system design interviews.
+> A comprehensive guide covering REST API design, GraphQL, gRPC, API versioning, error handling, idempotency, pagination, filtering, rate limiting integration, authentication patterns, webhook APIs, and how to articulate API design decisions with depth in system design interviews.
 
 ---
 
@@ -9,295 +9,838 @@
 
 1. [Core Concept](#core-concept)
 2. [REST API Design Principles](#rest-api-design-principles)
-3. [GraphQL for Mobile Clients](#graphql-for-mobile-clients)
-4. [gRPC for Internal Services](#grpc-for-internal-services)
-5. [API Versioning](#api-versioning)
-6. [Pagination](#pagination)
+3. [HTTP Methods — When to Use Which](#http-methods--when-to-use-which)
+4. [URL Structure and Naming Conventions](#url-structure-and-naming-conventions)
+5. [Request and Response Design](#request-and-response-design)
+6. [HTTP Status Codes — The Right Code for Every Situation](#http-status-codes)
 7. [Error Handling](#error-handling)
-8. [Idempotency in API Design](#idempotency-in-api-design)
-9. [Authentication & Authorization](#authentication--authorization)
-10. [Rate Limiting Headers](#rate-limiting-headers)
-11. [API Gateway Pattern](#api-gateway-pattern)
-12. [Interview Talking Points & Scripts](#interview-talking-points--scripts)
-13. [Common Interview Mistakes](#common-interview-mistakes)
-14. [Summary Cheat Sheet](#summary-cheat-sheet)
+8. [API Versioning](#api-versioning)
+9. [Pagination](#pagination)
+10. [Filtering, Sorting, and Field Selection](#filtering-sorting-and-field-selection)
+11. [Idempotency in APIs](#idempotency-in-apis)
+12. [Authentication and Authorization in APIs](#authentication-and-authorization-in-apis)
+13. [Rate Limiting in API Design](#rate-limiting-in-api-design)
+14. [REST vs GraphQL vs gRPC](#rest-vs-graphql-vs-grpc)
+15. [Webhook API Design](#webhook-api-design)
+16. [API Gateway Patterns](#api-gateway-patterns)
+17. [Real-World API Examples](#real-world-api-examples)
+18. [Interview Talking Points & Scripts](#interview-talking-points--scripts)
+19. [Common Interview Mistakes](#common-interview-mistakes)
+20. [Summary Cheat Sheet](#summary-cheat-sheet)
 
 ---
 
 ## Core Concept
 
-API design determines how clients interact with your system. The choice depends on the client type and use case:
+**API design** is defining the contract between your system and its consumers — how clients request data, create resources, handle errors, and authenticate. A well-designed API is intuitive, consistent, backward-compatible, and scales from 1 client to 1 million.
 
-| Protocol | Best For | Key Advantage |
-|---|---|---|
-| **REST** | Public APIs, web clients | Universal, cacheable, simple |
-| **GraphQL** | Mobile clients, varied data needs | Client specifies exact data shape |
-| **gRPC** | Internal service-to-service | Binary, typed, fast, streaming |
+```
+A great API is like a great UI for developers:
+  Discoverable: Developers can guess endpoints without reading docs
+  Consistent: Same patterns everywhere (no surprises)
+  Forgiving: Clear error messages when things go wrong
+  Evolvable: Can add features without breaking existing clients
+  Performant: Supports pagination, filtering, field selection
+```
 
 ---
 
 ## REST API Design Principles
 
-### Resource-Oriented URLs
-```
-GET    /api/v1/tweets                    → List tweets
-POST   /api/v1/tweets                    → Create tweet
-GET    /api/v1/tweets/{id}               → Get tweet by ID
-PUT    /api/v1/tweets/{id}               → Full update
-PATCH  /api/v1/tweets/{id}               → Partial update
-DELETE /api/v1/tweets/{id}               → Delete tweet
+### The Resource-Oriented Model
 
-GET    /api/v1/users/{id}/tweets         → User's tweets (sub-resource)
-GET    /api/v1/users/{id}/followers      → User's followers
-POST   /api/v1/tweets/{id}/likes         → Like a tweet
-DELETE /api/v1/tweets/{id}/likes         → Unlike a tweet
 ```
+REST = Resources (nouns) + HTTP Methods (verbs)
 
-### HTTP Status Codes
-```
-200 OK:          Successful GET/PUT/PATCH
-201 Created:     Successful POST (resource created)
-204 No Content:  Successful DELETE
-400 Bad Request: Invalid input (validation error)
-401 Unauthorized: Missing/invalid authentication
-403 Forbidden:   Authenticated but not authorized
-404 Not Found:   Resource doesn't exist
-409 Conflict:    Resource already exists (duplicate)
-429 Too Many:    Rate limited
-500 Server Error: Internal error
-503 Unavailable:  Service temporarily down
+Resources are THINGS (nouns):
+  /users          → Collection of users
+  /users/123      → Specific user
+  /users/123/orders  → Orders belonging to user 123
+  /orders/456     → Specific order (direct access)
+
+HTTP Methods are ACTIONS (verbs):
+  GET    → Read (retrieve a resource)
+  POST   → Create (create a new resource)
+  PUT    → Replace (full update of a resource)
+  PATCH  → Partial Update (modify specific fields)
+  DELETE → Remove (delete a resource)
+
+The combination tells the story:
+  GET /users/123        → "Get user 123"
+  POST /users           → "Create a new user"
+  PATCH /users/123      → "Update some fields of user 123"
+  DELETE /users/123     → "Delete user 123"
+  GET /users/123/orders → "Get all orders for user 123"
 ```
 
-### Response Format
+### Key REST Principles
+
+```
+1. Stateless: Each request contains ALL info needed to process it.
+   Server doesn't remember previous requests.
+   Auth token in every request, not "you logged in earlier."
+
+2. Resource-based: URLs represent resources, not actions.
+   ✅ GET /users/123     (resource-based)
+   ❌ GET /getUser?id=123 (action-based, RPC-style)
+   ❌ POST /deleteUser    (action in URL, wrong method)
+
+3. Uniform interface: Same patterns across all resources.
+   GET /users, GET /orders, GET /products (consistent)
+   Not: GET /users, FETCH /orders, RETRIEVE /products (inconsistent)
+
+4. HATEOAS (Hypermedia): Responses include links to related resources.
+   { "id": 123, "name": "Alice", 
+     "_links": { "orders": "/users/123/orders", "profile": "/users/123/profile" } }
+   (Nice to have, not required in interviews)
+```
+
+---
+
+## HTTP Methods — When to Use Which
+
+| Method | Purpose | Idempotent? | Safe? | Request Body? | Example |
+|---|---|---|---|---|---|
+| **GET** | Read/retrieve | Yes | Yes | No | GET /users/123 |
+| **POST** | Create | No | No | Yes | POST /users |
+| **PUT** | Full replace | Yes | No | Yes | PUT /users/123 |
+| **PATCH** | Partial update | Yes* | No | Yes | PATCH /users/123 |
+| **DELETE** | Remove | Yes | No | No | DELETE /users/123 |
+
+```
+Idempotent: Multiple identical requests produce the same result.
+  PUT /users/123 {name: "Bob"} → always sets name to "Bob" (same result)
+  DELETE /users/123 → user deleted. Delete again → still deleted (same result)
+  POST /users {name: "Bob"} → creates a NEW user each time (NOT idempotent!)
+
+Safe: Doesn't modify server state. GET is safe (read-only).
+  Safe methods can be cached, prefetched, retried freely.
+
+POST vs PUT:
+  POST /orders → Create a NEW order (server assigns ID)
+  PUT /orders/456 → Replace order 456 (client knows the ID)
+  
+  POST = "create something new, you decide the ID"
+  PUT = "here's exactly what this resource should look like"
+
+PUT vs PATCH:
+  PUT /users/123 {name: "Bob", email: "bob@x.com", age: 30}
+    → Replace ENTIRE resource (must send all fields)
+  
+  PATCH /users/123 {name: "Bob"}
+    → Update ONLY the name field (other fields unchanged)
+    
+  Use PATCH for partial updates (most common in practice).
+  Use PUT only when replacing the entire resource.
+```
+
+---
+
+## URL Structure and Naming Conventions
+
+### Best Practices
+
+```
+✅ Use plural nouns for collections:
+  /users (not /user)
+  /orders (not /order)
+  /products (not /product)
+
+✅ Use lowercase with hyphens:
+  /user-profiles (not /userProfiles, not /user_profiles)
+  /order-items (not /orderItems)
+
+✅ Nest for relationships (but don't go deeper than 2 levels):
+  /users/123/orders          ✅ (orders for user 123)
+  /users/123/orders/456      ✅ (specific order for user 123)
+  /users/123/orders/456/items/789  ❌ (too deep! Use /order-items/789)
+
+✅ Use query parameters for filtering:
+  /orders?status=pending&created_after=2025-03-01
+  /products?category=electronics&sort=price&order=asc
+
+❌ Don't put verbs in URLs:
+  ❌ /users/123/activate    (use PATCH /users/123 {status: "active"})
+  ❌ /orders/456/cancel     (use PATCH /orders/456 {status: "cancelled"})
+  
+  Exception: Operations that don't map to CRUD:
+  ✅ POST /orders/456/refund  (trigger a process, not simple field update)
+  ✅ POST /users/123/reset-password  (action that sends email)
+```
+
+### Sub-Resource vs Top-Level
+
+```
+Accessing a resource through its parent:
+  GET /users/123/orders → Orders for this specific user
+  
+  vs accessing directly:
+  GET /orders/456 → Any order by ID (regardless of user)
+
+Both are valid. Use the one that matches your access pattern:
+  "Show me MY orders" → GET /users/me/orders (or GET /orders?user_id=me)
+  "Admin looks up any order" → GET /orders/456
+  
+  If resource is ALWAYS accessed through parent → sub-resource URL
+  If resource is independently identifiable → top-level URL + optional filter
+```
+
+---
+
+## Request and Response Design
+
+### Request Body (POST/PUT/PATCH)
+
 ```json
+// POST /orders
 {
-  "data": {
-    "tweet_id": "123",
-    "content": "Hello world",
-    "author": { "user_id": "456", "name": "Alice" },
-    "created_at": "2025-03-15T14:30:00Z",
-    "like_count": 42
+  "user_id": "user_123",
+  "items": [
+    { "product_id": "prod_456", "quantity": 2 },
+    { "product_id": "prod_789", "quantity": 1 }
+  ],
+  "shipping_address": {
+    "street": "123 Main St",
+    "city": "NYC",
+    "zip": "10001"
   },
-  "meta": {
-    "request_id": "req-abc-123"
+  "payment_method_id": "pm_card_4242",
+  "idempotency_key": "order_req_abc123"
+}
+```
+
+### Response Body
+
+```json
+// 201 Created
+{
+  "id": "ord_xyz789",
+  "status": "confirmed",
+  "user_id": "user_123",
+  "total": 109.97,
+  "currency": "USD",
+  "items": [
+    { "product_id": "prod_456", "name": "Widget", "quantity": 2, "unit_price": 29.99 },
+    { "product_id": "prod_789", "name": "Gadget", "quantity": 1, "unit_price": 49.99 }
+  ],
+  "shipping_address": { ... },
+  "created_at": "2025-03-15T14:30:00Z",
+  "estimated_delivery": "2025-03-18T12:00:00Z"
+}
+```
+
+### Response Envelope Pattern
+
+```json
+// Consistent envelope for all responses:
+{
+  "data": { ... },          // The actual resource(s)
+  "meta": {                 // Pagination, request metadata
+    "total": 1247,
+    "page": 3,
+    "per_page": 50,
+    "request_id": "req_abc123"
+  },
+  "links": {                // Pagination links
+    "next": "/orders?page=4&per_page=50",
+    "prev": "/orders?page=2&per_page=50"
+  }
+}
+
+// Error envelope:
+{
+  "error": {
+    "code": "INSUFFICIENT_FUNDS",
+    "message": "Your account balance is insufficient for this purchase.",
+    "details": {
+      "required": 109.97,
+      "available": 85.00,
+      "currency": "USD"
+    },
+    "request_id": "req_abc123",
+    "documentation_url": "https://api.example.com/docs/errors#insufficient-funds"
   }
 }
 ```
 
-### Interview Script
-> *"I'd use REST for the public API — it's stateless, cacheable via HTTP headers, documented with OpenAPI/Swagger, and literally every developer on Earth knows how to call it. For internal service-to-service calls, gRPC with Protocol Buffers — binary serialization is 3-10x smaller than JSON, strong typing catches errors at compile time, and HTTP/2 multiplexing handles thousands of concurrent RPCs."*
+---
+
+## HTTP Status Codes
+
+### Success Codes (2xx)
+
+```
+200 OK: Request succeeded. Response includes data.
+  GET /users/123 → 200 with user data
+  PATCH /users/123 → 200 with updated user
+  DELETE /users/123 → 200 (or 204)
+
+201 Created: New resource created successfully.
+  POST /orders → 201 with new order data + Location header
+  Location: /orders/xyz789
+
+204 No Content: Success, but no response body.
+  DELETE /users/123 → 204 (deleted, nothing to return)
+  PUT /settings → 204 (updated, client already knows the data)
+
+202 Accepted: Request accepted for async processing.
+  POST /reports/generate → 202 (report will be ready later)
+  Response: { "status": "processing", "check_at": "/reports/123" }
+```
+
+### Client Error Codes (4xx)
+
+```
+400 Bad Request: Invalid request (malformed JSON, missing required field).
+  { "error": { "code": "VALIDATION_ERROR", "message": "email is required" } }
+
+401 Unauthorized: Not authenticated (no token, or token expired).
+  Response: WWW-Authenticate: Bearer realm="api"
+
+403 Forbidden: Authenticated but not authorized (wrong role/permissions).
+  "You're logged in as a regular user, but this requires admin."
+
+404 Not Found: Resource doesn't exist.
+  GET /users/999999 → 404 (user doesn't exist)
+  ALSO: Sometimes used to hide existence (security: 404 instead of 403)
+
+405 Method Not Allowed: Wrong HTTP method.
+  DELETE /users → 405 (can't delete entire collection)
+
+409 Conflict: Request conflicts with current state.
+  POST /users {email: "alice@x.com"} → 409 (email already exists)
+  PUT /orders/456 {version: 3} → 409 (current version is 4, conflict)
+
+422 Unprocessable Entity: Valid JSON, but semantically wrong.
+  POST /orders {quantity: -5} → 422 (can't have negative quantity)
+
+429 Too Many Requests: Rate limit exceeded.
+  Headers: Retry-After: 30, X-RateLimit-Remaining: 0
+```
+
+### Server Error Codes (5xx)
+
+```
+500 Internal Server Error: Server bug. Client can retry.
+502 Bad Gateway: Upstream service is down (load balancer can't reach backend).
+503 Service Unavailable: Server overloaded or in maintenance.
+  Headers: Retry-After: 60
+504 Gateway Timeout: Upstream service is too slow.
+```
 
 ---
 
-## GraphQL for Mobile Clients
+## Error Handling
 
-### The Problem REST Has
+### Structured Error Response
+
+```json
+{
+  "error": {
+    "code": "RESOURCE_NOT_FOUND",
+    "message": "Order ord_xyz789 not found.",
+    "status": 404,
+    "request_id": "req_abc123",
+    "timestamp": "2025-03-15T14:30:00Z",
+    "details": {
+      "resource_type": "order",
+      "resource_id": "ord_xyz789"
+    },
+    "documentation_url": "https://api.example.com/docs/errors#resource-not-found"
+  }
+}
 ```
-REST over-fetching:
-  GET /users/123 → returns 30 fields (2KB), client needs 3 fields
 
-REST under-fetching:
-  Need user profile + recent posts + follower count = 3 API calls
+### Validation Errors (Multiple Fields)
 
-GraphQL: One request, exact data needed:
-  query { user(id: "123") { name, avatar, followerCount, recentPosts(limit: 3) { title } } }
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Request validation failed.",
+    "status": 422,
+    "details": {
+      "fields": [
+        { "field": "email", "message": "Invalid email format", "value": "not-an-email" },
+        { "field": "age", "message": "Must be between 13 and 120", "value": -5 }
+      ]
+    }
+  }
+}
 ```
 
-### Interview Script
-> *"GraphQL makes sense specifically for the mobile client. Our user profile page needs the user's name, avatar, follower count, and last 3 posts — but our REST API either returns the entire user object (over-fetching 30 fields) or requires 3 separate API calls. GraphQL lets the mobile client specify exactly what it needs — one request, minimal bandwidth on cellular."*
+### Error Design Principles
 
----
-
-## gRPC for Internal Services
-
-### Why gRPC Internally
 ```
-Protobuf: 3-10x smaller than JSON
-HTTP/2: Multiplexed (thousands of RPCs per connection)
-Typed: Compile-time errors instead of runtime
-Code generation: Auto-generated clients in 10+ languages
-Streaming: Server streaming, client streaming, bidirectional
+1. Machine-readable error code: "INSUFFICIENT_FUNDS" (client can switch on this)
+2. Human-readable message: "Your balance is too low" (display to user)
+3. Request ID: Always include for debugging (correlate with server logs)
+4. Documentation link: Where to learn more about this error
+5. Don't expose internals: No stack traces, no SQL errors, no internal IPs
+
+Security: Never reveal:
+  ❌ "User with this email already exists" (confirms email is registered → attack vector)
+  ✅ "Unable to create account. Please try a different email." (vague, safe)
 ```
 
 ---
 
 ## API Versioning
 
-### URL Path Versioning (Recommended)
-```
-/api/v1/tweets      → Version 1
-/api/v2/tweets      → Version 2 (breaking changes)
+### Strategies
 
-Pros: Explicit, easy to route, easy to test
-Cons: URL changes between versions
+```
+1. URL versioning (most common, most explicit):
+   /api/v1/users/123
+   /api/v2/users/123
+   
+   Pros: Clear, visible, easy to route at load balancer
+   Cons: URL pollution, clients must update URLs for new versions
+
+2. Header versioning:
+   Accept: application/vnd.example.v2+json
+   
+   Pros: Clean URLs, content negotiation
+   Cons: Hidden, harder to test (can't just paste URL in browser)
+
+3. Query parameter:
+   /api/users/123?version=2
+   
+   Pros: Simple, visible
+   Cons: Optional parameter → what's the default? Confusing.
+
+Recommendation for interviews:
+  URL versioning (/api/v1/) — most explicit, easiest to reason about.
+  "I'd version the API in the URL: /api/v2/orders. When we need breaking changes,
+   we deploy v2 alongside v1, give clients 6 months to migrate, then deprecate v1."
 ```
 
-### Header Versioning
-```
-GET /api/tweets
-Accept: application/vnd.example.v2+json
+### Backward Compatibility Rules
 
-Pros: Clean URLs
-Cons: Harder to test (need custom headers), less visible
 ```
+SAFE changes (no new version needed):
+  ✅ Adding a new field to response (existing clients ignore it)
+  ✅ Adding a new optional query parameter
+  ✅ Adding a new endpoint
+  ✅ Adding a new value to an enum (if client handles "unknown" gracefully)
 
-### Best Practice
-```
-Non-breaking changes: Add new fields (backward compatible, no version bump)
-Breaking changes:     New version (v1 → v2)
-Deprecation:          Support v1 for 12 months after v2 launch
+BREAKING changes (need new version):
+  ❌ Removing a response field
+  ❌ Renaming a response field
+  ❌ Changing a field's type (string → number)
+  ❌ Adding a required request field
+  ❌ Changing URL structure
+  ❌ Changing error response format
+
+Strategy: Additive changes only in existing version.
+  Breaking changes → new major version → deprecation timeline for old version.
 ```
 
 ---
 
 ## Pagination
 
-### Cursor-Based (Recommended for Feeds)
-```
-GET /api/v1/timeline?cursor=eyJpZCI6MTIzNDV9&limit=20
+### Cursor-Based (Recommended)
 
+```
+Request: GET /orders?limit=20&cursor=eyJpZCI6MTAwfQ==
 Response:
 {
-  "data": [...20 tweets...],
+  "data": [...20 orders...],
   "pagination": {
-    "next_cursor": "eyJpZCI6MTIzMjV9",
+    "next_cursor": "eyJpZCI6MTIwfQ==",
     "has_more": true
   }
 }
 
-Query: SELECT * FROM timeline WHERE tweet_id < 12345 ORDER BY tweet_id DESC LIMIT 20
-Performance: O(1) regardless of scroll depth
+Next page: GET /orders?limit=20&cursor=eyJpZCI6MTIwfQ==
+
+Cursor = opaque token (base64 encoded last item's ID/sort key).
+Client doesn't know what's inside — just passes it back.
+
+Pros:
+  ✅ Consistent results even with concurrent inserts/deletes
+  ✅ O(1) performance regardless of page number
+  ✅ Works with DynamoDB LastEvaluatedKey, Elasticsearch search_after
+  
+Cons:
+  ❌ Can't jump to "page 50" (must traverse sequentially)
+  ❌ Not great for UI with page numbers (but perfect for infinite scroll)
 ```
 
-### Offset-Based (For Admin Tables)
+### Offset-Based (Simple but Limited)
+
 ```
-GET /api/v1/users?page=3&limit=20
-
-Query: SELECT * FROM users LIMIT 20 OFFSET 40
-Performance: O(N) — degrades with page depth
-Use only for: Small datasets, admin interfaces where page jumping is needed
-```
-
-### Interview Script
-> *"I'd use cursor-based pagination for the infinite-scroll timeline. The client sends `GET /timeline?cursor=eyJpZCI6MTIzNDV9&limit=20`. Internally, the cursor decodes to `{id: 12345}`, and the query uses `WHERE tweet_id < 12345 ORDER BY tweet_id DESC LIMIT 20`. This is O(1) regardless of position — whether the user has scrolled through 20 or 20,000 tweets. Offset-based pagination is a trap at scale — the database scans and discards 10,000 rows to find the 20 you want."*
-
----
-
-## Error Handling
-
-### Consistent Error Response
-```json
+Request: GET /orders?page=3&per_page=20
+Response:
 {
-  "error": {
-    "code": "TWEET_NOT_FOUND",
-    "message": "Tweet with ID 123 not found",
-    "details": {
-      "tweet_id": "123",
-      "suggestion": "The tweet may have been deleted"
-    },
-    "request_id": "req-abc-123"
-  }
+  "data": [...20 orders...],
+  "meta": { "total": 1247, "page": 3, "per_page": 20, "total_pages": 63 }
 }
-```
 
-### Error Code Categories
-```
-Validation errors (400):   INVALID_CONTENT, CONTENT_TOO_LONG
-Auth errors (401/403):     TOKEN_EXPIRED, INSUFFICIENT_PERMISSIONS
-Not found (404):           TWEET_NOT_FOUND, USER_NOT_FOUND
-Conflict (409):            DUPLICATE_EMAIL, ALREADY_LIKED
-Rate limit (429):          RATE_LIMIT_EXCEEDED
-Server errors (500):       INTERNAL_ERROR (never expose stack traces)
-```
+Pros:
+  ✅ Can jump to any page (page=50)
+  ✅ Can show "Page 3 of 63" in UI
+  
+Cons:
+  ❌ OFFSET 1000 in SQL → slow (DB scans and discards 1000 rows)
+  ❌ Inconsistent with concurrent changes (items shift between pages)
+  ❌ Doesn't work with DynamoDB (no OFFSET concept)
 
----
-
-## Idempotency in API Design
-
-### For Mutation Operations
-```
-POST /api/v1/payments
-Headers:
-  Idempotency-Key: abc-123-def-456
-
-If same key sent again → return cached result (no double-charge)
-```
-
-### Naturally Idempotent Methods
-```
-GET:    Always idempotent (reading doesn't change state)
-PUT:    Idempotent (setting to the same value is a no-op)
-DELETE: Idempotent (deleting already-deleted is a no-op)
-POST:   NOT naturally idempotent → needs idempotency key
-PATCH:  Depends on the operation (increment is not idempotent)
+Use offset for: Small datasets, admin UIs with page numbers.
+Use cursor for: Large datasets, mobile infinite scroll, DynamoDB.
 ```
 
 ---
 
-## Authentication & Authorization
+## Filtering, Sorting, and Field Selection
 
-### JWT for Stateless Auth
+### Filtering
+
 ```
-Client → POST /auth/login { email, password }
-Server → { "token": "eyJhbGc...", "expires_in": 900 }
+GET /orders?status=pending&created_after=2025-03-01&total_min=100
 
-Subsequent requests:
-  GET /api/v1/tweets
-  Authorization: Bearer eyJhbGc...
+  status=pending: Exact match
+  created_after=2025-03-01: Range filter
+  total_min=100: Numeric range
 
-API Gateway validates JWT → forwards claims as headers → no session store needed.
-Short-lived tokens (15 min) + refresh tokens for security.
+Complex filters:
+  GET /products?category=electronics&price[gte]=100&price[lte]=500&in_stock=true
+  
+  Square bracket notation for range operators:
+    price[gte]=100 → price >= 100
+    price[lte]=500 → price <= 500
+    price[gt], price[lt] → strict greater/less than
 ```
 
-### Interview Script
-> *"I'd use JWT for stateless authentication across microservices. The API gateway validates the JWT signature and forwards the decoded claims as headers. No downstream service needs to call an auth server. At 100K requests/sec, eliminating a session store lookup saves us a Redis cluster and reduces p99 latency by 2ms. Short-lived tokens (15 minutes) with a lightweight blacklist for emergency revocation."*
+### Sorting
+
+```
+GET /products?sort=price&order=asc
+GET /products?sort=-price (hyphen prefix = descending)
+GET /products?sort=created_at:desc,price:asc (multiple fields)
+
+Default sort: Most recent first (created_at DESC) for most resources.
+Always document the default sort order.
+```
+
+### Field Selection (Sparse Fieldsets)
+
+```
+GET /users/123?fields=id,name,avatar_url
+
+  Returns ONLY requested fields (reduces response size):
+  { "id": 123, "name": "Alice", "avatar_url": "..." }
+  
+  Instead of full 50-field response.
+  Saves bandwidth, especially for mobile clients.
+
+GraphQL equivalent: This is exactly what GraphQL does natively.
+REST requires explicit field selection support.
+```
 
 ---
 
-## Rate Limiting Headers
+## Idempotency in APIs
 
-```http
-HTTP/1.1 200 OK
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 42
-X-RateLimit-Reset: 1710500000
+### The Problem
 
-HTTP/1.1 429 Too Many Requests
-Retry-After: 30
+```
+Client sends: POST /payments {amount: 100}
+Network timeout — client doesn't know if server received it.
+Client retries: POST /payments {amount: 100}
+
+Without idempotency: Customer charged $200 (two payments created!)
+With idempotency: Customer charged $100 (second request returns cached result)
+```
+
+### Idempotency Key Pattern
+
+```
+Request:
+  POST /payments
+  X-Idempotency-Key: idem_abc123
+  { "amount": 100, "customer": "cust_456" }
+
+Server logic:
+  1. Check Redis: GET idempotency:idem_abc123
+  2. If exists → return cached response (don't re-execute)
+  3. If not exists:
+     a. Process payment
+     b. Store: SET idempotency:idem_abc123 {response} EX 86400
+     c. Return response
+
+  Key lifetime: 24 hours (long enough for retries, short enough to not waste memory)
+  
+  Stripe, Amazon, and most payment APIs use this exact pattern.
+  
+  Client generates the key (UUID) → server deduplicates.
+  Same key + same endpoint + same body = same response (no duplicate execution).
+```
+
+### Which Methods Need Idempotency Keys?
+
+```
+GET:    Naturally idempotent (read-only). No key needed.
+PUT:    Naturally idempotent (same body → same result). No key needed.
+DELETE: Naturally idempotent (delete twice → still deleted). No key needed.
+PATCH:  Usually idempotent (SET name = "Bob" twice → same result). Usually no key.
+POST:   NOT idempotent! Each POST creates a new resource.
+  → POST endpoints that have side effects MUST support idempotency keys.
+  → Especially: payments, orders, transfers, notifications.
 ```
 
 ---
 
-## API Gateway Pattern
+## Authentication and Authorization in APIs
+
+### Auth Patterns Summary
 
 ```
-Client → API Gateway → Route by path → Microservices
-                     → Auth validation
-                     → Rate limiting
-                     → Request logging
-                     → TLS termination
-                     → Response caching
+Public APIs (third-party developers):
+  API Key: X-API-Key: sk_live_abc123
+  Simple, easy to revoke, rate limit per key.
+
+Mobile/SPA (first-party apps):
+  JWT (short-lived): Authorization: Bearer eyJ...
+  + Refresh token (long-lived, stored securely)
+  Access token expires in 15 minutes → refresh for new one.
+
+Web Apps (browser, same domain):
+  HttpOnly Cookie: Set-Cookie: session_id=abc; HttpOnly; Secure; SameSite=Strict
+  Best security for browser-based clients.
+
+Service-to-Service (internal):
+  mTLS (mutual TLS): Both client and server present certificates.
+  Or: Signed JWT with service identity.
+  No user credentials — just service identity.
+
+Webhook verification:
+  HMAC signature: X-Signature: sha256=abc123...
+  Receiver verifies signature with shared secret.
+```
+
+---
+
+## Rate Limiting in API Design
+
+```
+Design rate limits per:
+  Per API key: 1000 requests/minute
+  Per user: 100 requests/minute (across all their API keys)
+  Per endpoint: /search limited to 10 req/sec (expensive)
+  Per IP: 50 requests/minute (unauthenticated)
+
+Response headers:
+  X-RateLimit-Limit: 1000
+  X-RateLimit-Remaining: 847
+  X-RateLimit-Reset: 1742234460
+
+When exceeded:
+  HTTP 429 Too Many Requests
+  Retry-After: 30
+  Body: { "error": { "code": "RATE_LIMIT_EXCEEDED", "retry_after_seconds": 30 } }
+
+Tiered rate limits:
+  Free tier: 100 req/min
+  Pro tier: 1000 req/min
+  Enterprise: 10000 req/min (or custom)
+```
+
+---
+
+## REST vs GraphQL vs gRPC
+
+| Aspect | REST | GraphQL | gRPC |
+|---|---|---|---|
+| **Protocol** | HTTP/1.1 or HTTP/2 | HTTP (typically POST) | HTTP/2 |
+| **Data format** | JSON | JSON | Protobuf (binary) |
+| **Schema** | OpenAPI/Swagger | Strong schema (SDL) | .proto files |
+| **Flexibility** | Fixed endpoints | Client specifies fields | Fixed methods |
+| **Over-fetching** | Common problem | Solved (request only needed fields) | Minimal (binary) |
+| **Caching** | HTTP caching (GET) | Harder (all POST) | Not HTTP-cacheable |
+| **Real-time** | Polling/WebSocket | Subscriptions | Bidirectional streaming |
+| **Best for** | Public APIs, CRUD | Mobile apps, complex UIs | Internal microservices |
+
+```
+Choose REST when:
+  ✅ Public API for third-party developers (most familiar)
+  ✅ Simple CRUD operations
+  ✅ HTTP caching is important
+  ✅ Resource-oriented data model
+
+Choose GraphQL when:
+  ✅ Mobile app needing different data per screen
+  ✅ Multiple clients needing different response shapes
+  ✅ Reducing over-fetching is critical (bandwidth-sensitive)
+  ✅ Rapid frontend iteration without backend changes
+
+Choose gRPC when:
+  ✅ Internal service-to-service communication
+  ✅ High-performance, low-latency requirements
+  ✅ Streaming data (bidirectional)
+  ✅ Strong typing with code generation
+  ✅ Not browser-facing (limited browser support)
+```
+
+---
+
+## Webhook API Design
+
+### Designing Webhook Delivery
+
+```
+Registration:
+  POST /webhooks
+  { "url": "https://customer.com/webhook", "events": ["order.created", "order.shipped"] }
+
+Delivery:
+  POST https://customer.com/webhook
+  Content-Type: application/json
+  X-Webhook-Signature: sha256=abc123...
+  X-Webhook-Id: wh_event_789
+  X-Webhook-Timestamp: 2025-03-15T14:30:00Z
+  
+  { "event": "order.created", "data": { "order_id": "ord_456", ... } }
+
+Verification:
+  Receiver computes: HMAC-SHA256(request_body, webhook_secret)
+  Compares with X-Webhook-Signature → if match, authentic.
+
+Retry policy:
+  If receiver responds non-2xx → retry with exponential backoff:
+  1 min → 5 min → 30 min → 2 hours → 8 hours → 24 hours → give up (disable webhook)
+
+Idempotency:
+  Receiver uses X-Webhook-Id to deduplicate (same event delivered twice = process once).
+```
+
+---
+
+## API Gateway Patterns
+
+```
+API Gateway sits between clients and backend services:
+
+  Client → API Gateway → Service A
+                       → Service B
+                       → Service C
+
+Gateway responsibilities:
+  Authentication: Validate JWT/API key before reaching services
+  Rate limiting: Enforce limits per client/API key
+  Routing: /users → User Service, /orders → Order Service
+  Transformation: Rename fields, merge responses, version translation
+  Caching: Cache GET responses (short TTL)
+  Logging: Access logs, request/response capture
+  CORS: Handle OPTIONS preflight responses
+  
+Products: AWS API Gateway, Kong, Envoy, Nginx, Apigee
+
+In system design:
+  "I'd put an API gateway in front of our microservices. It handles 
+   authentication, rate limiting, and routing — so individual services 
+   don't need to implement these cross-cutting concerns."
+```
+
+---
+
+## Real-World API Examples
+
+### Stripe API (Gold Standard)
+
+```
+POST /v1/charges
+Authorization: Bearer sk_live_abc123
+Idempotency-Key: charge_req_456
+
+{
+  "amount": 2000,        // In cents ($20.00)
+  "currency": "usd",
+  "source": "tok_visa",
+  "description": "Order #789"
+}
+
+Response (201 Created):
+{
+  "id": "ch_1234",
+  "amount": 2000,
+  "currency": "usd",
+  "status": "succeeded",
+  "created": 1742234400
+}
+
+Why Stripe's API is great:
+  - Consistent URL structure (/v1/resource)
+  - Idempotency keys for payment safety
+  - Expanding related objects (?expand[]=customer)
+  - Pagination with cursor (starting_after parameter)
+  - Clear error codes with machine-readable types
+```
+
+### Twitter/X API
+
+```
+GET /2/tweets?ids=123,456&tweet.fields=created_at,public_metrics
+Authorization: Bearer <token>
+
+Response:
+{
+  "data": [
+    { "id": "123", "text": "Hello!", "created_at": "...", "public_metrics": {...} }
+  ]
+}
+
+Patterns used:
+  - Field selection (tweet.fields=...)
+  - Batch fetching (ids=123,456)
+  - Expansion of nested objects
+  - Cursor pagination for timelines
 ```
 
 ---
 
 ## Interview Talking Points & Scripts
 
-### REST for Public
-> *"REST for public APIs — universal, cacheable, OpenAPI-documented. gRPC for internal — binary, typed, fast. GraphQL for mobile — one request, exact data."*
+### API Design for an Order System
 
-### Cursor Pagination
-> *"Cursor-based for infinite scroll — O(1) at any depth. Offset-based is a trap — O(N) at page 500."*
+> *"I'd design the order API as RESTful resources. POST /api/v1/orders to create an order — the request includes an X-Idempotency-Key header so retries don't create duplicate orders. Response is 201 with the order object and a Location header pointing to /api/v1/orders/{id}. GET /api/v1/users/{id}/orders for a user's order history — cursor-paginated with 20 items per page by default. PATCH /api/v1/orders/{id} for status updates. I'd version in the URL (/v1/) and plan for /v2/ when we need breaking changes."*
+
+### Error Handling
+
+> *"Every error response follows a consistent envelope: a machine-readable code (INSUFFICIENT_INVENTORY), a human-readable message, the request_id for debugging, and a documentation URL. For validation errors, I'd return 422 with field-level error details. For auth issues, 401 if not authenticated, 403 if wrong permissions. I'd never expose internal errors to clients — 500 with a generic message and the request_id is enough for the client; engineers correlate using the request_id in our logging system."*
+
+### Versioning
+
+> *"I'd version the API in the URL: /api/v1/. Adding new optional fields is backward-compatible — no version bump needed. When we need a breaking change (like restructuring the order response), we release /api/v2/ alongside v1, give clients a 6-month migration window with deprecation warnings in response headers, then sunset v1."*
 
 ---
 
 ## Common Interview Mistakes
 
-### ❌ Using GraphQL for simple CRUD (overkill)
-### ❌ Offset pagination for feeds (degrades at scale)
-### ❌ Not including idempotency keys for POST/payments
-### ❌ Exposing internal errors in API responses (security risk)
-### ❌ Not versioning the API
+### ❌ Mistake 1: Verbs in URLs
+**Wrong**: POST /createOrder, GET /getUser
+**Better**: POST /orders, GET /users/123. Resources are nouns, methods are verbs.
+
+### ❌ Mistake 2: Not mentioning idempotency for POST
+**Wrong**: "Clients send POST /orders to create an order."
+**Better**: "POST /orders with an X-Idempotency-Key header. If the network times out and the client retries, the server returns the cached response instead of creating a duplicate."
+
+### ❌ Mistake 3: Using 200 for everything
+**Wrong**: Always returning 200 with error in body.
+**Better**: 201 for created, 204 for deleted, 400 for bad input, 404 for not found, 429 for rate limited.
+
+### ❌ Mistake 4: No pagination
+**Wrong**: GET /orders returns ALL orders (could be millions).
+**Better**: Cursor-based pagination with configurable limit (default 20, max 100).
+
+### ❌ Mistake 5: Exposing internal errors
+**Wrong**: { "error": "NullPointerException at OrderService.java:42" }
+**Better**: { "error": { "code": "INTERNAL_ERROR", "message": "Something went wrong", "request_id": "req_abc" } }
+
+### ❌ Mistake 6: No versioning strategy
+**Wrong**: "We'll just update the existing API."
+**Better**: "URL-versioned at /api/v1/. Breaking changes go in v2. Deprecation timeline of 6 months."
 
 ---
 
@@ -305,25 +848,56 @@ Client → API Gateway → Route by path → Microservices
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                  API DESIGN CHEAT SHEET                       │
+│                   API DESIGN CHEAT SHEET                       │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
-│  REST: Public APIs (universal, cacheable)                    │
-│  GraphQL: Mobile (exact data, one request)                   │
-│  gRPC: Internal (binary, typed, fast)                        │
+│  RESOURCES: Plural nouns, lowercase, hyphens                 │
+│    /users, /orders, /user-profiles                           │
 │                                                              │
-│  PAGINATION: Cursor-based for feeds (O(1))                   │
-│              Offset-based for admin tables only               │
+│  METHODS:                                                    │
+│    GET (read), POST (create), PUT (replace),                 │
+│    PATCH (partial update), DELETE (remove)                    │
 │                                                              │
-│  VERSIONING: URL path (/api/v1/...) — explicit, easy         │
-│  AUTH: JWT (stateless, 15-min tokens)                        │
-│  IDEMPOTENCY: Client-generated key for POST/mutations        │
-│  ERRORS: Consistent JSON format with error codes             │
-│  RATE LIMITING: X-RateLimit-Remaining + Retry-After          │
+│  STATUS CODES:                                               │
+│    200 OK, 201 Created, 204 No Content                       │
+│    400 Bad Request, 401 Unauthorized, 403 Forbidden          │
+│    404 Not Found, 409 Conflict, 422 Unprocessable, 429 Rate  │
+│    500 Internal Error, 503 Unavailable                       │
+│                                                              │
+│  PAGINATION: Cursor-based (recommended), offset (simple)     │
+│  FILTERING: Query params (?status=pending&price[gte]=100)    │
+│  VERSIONING: URL-based (/api/v1/) — most explicit            │
+│                                                              │
+│  IDEMPOTENCY:                                                │
+│    POST endpoints: X-Idempotency-Key header (client-generated)│
+│    Server: Dedup via Redis (24h TTL)                         │
+│    GET/PUT/DELETE: Naturally idempotent (no key needed)       │
+│                                                              │
+│  ERROR HANDLING:                                             │
+│    Consistent envelope: code, message, request_id, details   │
+│    Never expose internals (no stack traces!)                 │
+│                                                              │
+│  AUTH: Bearer JWT (APIs), Cookies (web), API keys (3rd party)│
+│  RATE LIMITING: X-RateLimit-* headers, 429 + Retry-After     │
+│                                                              │
+│  REST vs GraphQL vs gRPC:                                    │
+│    REST: Public APIs, CRUD, HTTP caching                     │
+│    GraphQL: Mobile, flexible queries, reduce over-fetching   │
+│    gRPC: Internal services, streaming, high performance      │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-*This document is part of the 44-topic System Design Interview Deep Dive series.*
+## Related Topics
+
+- **Topic 9: Communication Protocols** — HTTP/1.1, HTTP/2, gRPC, WebSocket
+- **Topic 15: Rate Limiting** — Implementation of rate limiting in APIs
+- **Topic 26: Pagination** — Deep dive into pagination strategies
+- **Topic 27: Security & Encryption** — Auth, TLS, API security
+- **Topic 51: HTTP Headers** — Complete header reference for APIs
+
+---
+
+*This document is part of the System Design Interview Deep Dive series.*
