@@ -212,13 +212,216 @@ public ReturnType solve(InputType input) {
     // Option A: Return sentinel
     return -1; // "As discussed, returning -1 if no valid answer"
     
-    // Option B: Return Optional
+    // Option B: Return Optional (see detailed section below)
     return Optional.empty();
     
     // Option C: Throw  
     throw new NoSuchElementException("No valid solution found");
 }
 ```
+
+### 📦 Optional — Complete Reference (Java 8+)
+
+> **Why Optional matters at Microsoft**: It signals you write null-safe, clean code. Interviewers love seeing it for "find" or "search" methods where a result may not exist.
+
+#### When to Use Optional vs Other Approaches
+
+| Scenario | Use | Why |
+|----------|-----|-----|
+| Method might not find a result | `Optional<T>` | Caller **must** handle the empty case — no surprise NullPointerException |
+| Method always returns a result | Direct return `T` | No need for Optional overhead |
+| Input validation failure | Throw exception | Invalid input is a **programming error**, not a "no result" |
+| Collection result (might be empty) | Return empty `List<T>` | Empty collection is idiomatic, don't wrap in Optional |
+| Primitive result (int, long) | `OptionalInt`, `OptionalLong` | Avoids boxing overhead |
+
+#### Creating Optional
+
+```java
+import java.util.Optional;
+import java.util.OptionalInt;
+
+// ===== Creating Optional =====
+Optional<String> present = Optional.of("hello");      // Value MUST be non-null (throws NPE if null)
+Optional<String> nullable = Optional.ofNullable(str);  // Safe for null — returns empty if null
+Optional<String> empty = Optional.empty();              // Explicitly empty
+
+// ===== Primitive Optionals (avoid boxing) =====
+OptionalInt optInt = OptionalInt.of(42);
+OptionalInt emptyInt = OptionalInt.empty();
+OptionalLong optLong = OptionalLong.of(100L);
+OptionalDouble optDouble = OptionalDouble.of(3.14);
+```
+
+#### Consuming / Unwrapping Optional
+
+```java
+Optional<String> opt = findUser("id-123");
+
+// ===== Check + Get (verbose, but clear) =====
+if (opt.isPresent()) {
+    String value = opt.get();        // Safe here — we checked isPresent()
+}
+// ⚠️ NEVER call .get() without .isPresent() — throws NoSuchElementException
+
+// ===== orElse — provide default value (ALWAYS evaluated) =====
+String value = opt.orElse("default");       // Returns "default" if empty
+
+// ===== orElseGet — provide default via Supplier (LAZY, evaluated only if empty) =====
+String value = opt.orElseGet(() -> computeExpensiveDefault());
+// ⭐ Use orElseGet when default is expensive to compute
+
+// ===== orElseThrow — throw if empty =====
+String value = opt.orElseThrow();                                    // NoSuchElementException
+String value = opt.orElseThrow(() -> new IllegalStateException("User not found"));
+String value = opt.orElseThrow(() -> new NotFoundException("id-123"));
+
+// ===== ifPresent — execute action only if present =====
+opt.ifPresent(user -> System.out.println("Found: " + user));
+
+// ===== ifPresentOrElse (Java 9+) — handle both cases =====
+opt.ifPresentOrElse(
+    user -> System.out.println("Found: " + user),
+    ()   -> System.out.println("Not found")
+);
+```
+
+#### Transforming Optional (map, flatMap, filter)
+
+```java
+Optional<User> userOpt = findUser("id-123");
+
+// ===== map — transform value if present =====
+Optional<String> nameOpt = userOpt.map(User::getName);     // Optional<String>
+Optional<Integer> lengthOpt = userOpt.map(u -> u.getName().length());
+
+// ===== flatMap — when transformation itself returns Optional =====
+// Use flatMap to avoid Optional<Optional<T>>
+Optional<Address> addressOpt = userOpt.flatMap(User::getAddress);  // User::getAddress returns Optional<Address>
+// With map: Optional<Optional<Address>> ← WRONG nesting
+// With flatMap: Optional<Address> ← CORRECT
+
+// ===== filter — keep value only if predicate matches =====
+Optional<User> adultOpt = userOpt.filter(u -> u.getAge() >= 18);
+// If user is under 18 OR userOpt was empty → returns Optional.empty()
+
+// ===== Chaining (powerful pattern) =====
+String city = findUser("id-123")
+    .flatMap(User::getAddress)           // Optional<Address>
+    .map(Address::getCity)               // Optional<String>
+    .filter(c -> !c.isEmpty())           // Optional<String> (only non-empty cities)
+    .orElse("Unknown");                  // String
+```
+
+#### Optional in Interview — Common Patterns
+
+```java
+// ===== Pattern 1: Find first element matching condition =====
+public Optional<Integer> findFirstEven(int[] nums) {
+    for (int num : nums) {
+        if (num % 2 == 0) {
+            return Optional.of(num);
+        }
+    }
+    return Optional.empty();  // No even number found
+}
+
+// Caller:
+Optional<Integer> result = findFirstEven(nums);
+int value = result.orElse(-1);                              // sentinel
+int value = result.orElseThrow(() -> new RuntimeException("No even number"));
+
+// ===== Pattern 2: Search in data structure =====
+public Optional<TreeNode> findNode(TreeNode root, int target) {
+    if (root == null) return Optional.empty();
+    if (root.val == target) return Optional.of(root);
+    
+    Optional<TreeNode> left = findNode(root.left, target);
+    if (left.isPresent()) return left;
+    
+    return findNode(root.right, target);
+}
+
+// ===== Pattern 3: Lookup in Map =====
+public Optional<String> getUserName(Map<Integer, String> users, int id) {
+    return Optional.ofNullable(users.get(id));  // get() returns null if missing → wraps as empty
+}
+
+// ===== Pattern 4: OptionalInt for index-finding =====
+public OptionalInt findIndex(int[] nums, int target) {
+    for (int i = 0; i < nums.length; i++) {
+        if (nums[i] == target) {
+            return OptionalInt.of(i);
+        }
+    }
+    return OptionalInt.empty();
+}
+
+// Caller:
+OptionalInt idx = findIndex(nums, 5);
+if (idx.isPresent()) {
+    System.out.println("Found at index: " + idx.getAsInt());
+}
+int index = idx.orElse(-1);
+
+// ===== Pattern 5: Stream + Optional (find in collection) =====
+Optional<String> result = names.stream()
+    .filter(name -> name.startsWith("A"))
+    .findFirst();                                     // Optional<String>
+    
+Optional<Integer> max = numbers.stream()
+    .filter(n -> n > 0)
+    .max(Integer::compareTo);                         // Optional<Integer>
+
+Optional<Integer> min = numbers.stream()
+    .min(Comparator.naturalOrder());                  // Optional<Integer>
+
+// ===== Pattern 6: Converting Optional to Stream (Java 9+) =====
+List<String> names = userIds.stream()
+    .map(this::findUser)                              // Stream<Optional<User>>
+    .flatMap(Optional::stream)                        // Stream<User> (filters out empties)
+    .map(User::getName)
+    .collect(Collectors.toList());
+```
+
+#### ⚠️ Optional Anti-Patterns (What NOT to Do)
+
+```java
+// ❌ ANTI-PATTERN 1: Optional as method parameter
+public void process(Optional<String> name) { }  // ❌ Just use @Nullable or overloads
+public void process(String name) { }             // ✅ Accept nullable, validate inside
+
+// ❌ ANTI-PATTERN 2: Optional as class field
+class User {
+    Optional<String> middleName;  // ❌ Optional is NOT Serializable, adds overhead
+    String middleName;            // ✅ Use null for absent, document it
+}
+
+// ❌ ANTI-PATTERN 3: Optional.of() with possibly null value
+Optional.of(possiblyNull);       // ❌ NullPointerException if null!
+Optional.ofNullable(possiblyNull); // ✅ Safe — returns empty if null
+
+// ❌ ANTI-PATTERN 4: Checking isPresent() then get() — use orElse instead
+if (opt.isPresent()) {            // ❌ Verbose
+    return opt.get();
+} else {
+    return "default";
+}
+return opt.orElse("default");     // ✅ Clean
+
+// ❌ ANTI-PATTERN 5: Returning Optional of collection
+Optional<List<String>> findNames(); // ❌ Return empty list instead
+List<String> findNames();           // ✅ Return Collections.emptyList() if none
+```
+
+#### 🗣️ What to Say in Interview About Optional
+
+| Situation | Say This |
+|-----------|----------|
+| Method might return no result | "I'll return `Optional<T>` so the caller is forced to handle the absence case — no null surprise." |
+| Why not return null | "Returning null is error-prone — callers might forget to check. Optional makes the contract explicit." |
+| Why not for primitives | "I'll use `OptionalInt` to avoid boxing overhead." |
+| Why not for collections | "For collection returns, I'll return an empty list — that's more idiomatic than `Optional<List<T>>`." |
+| Chaining | "I can chain `map`, `flatMap`, `filter` on Optional to transform the result cleanly without null checks." |
 
 ### 🧵 Concurrency Template (If Asked)
 
