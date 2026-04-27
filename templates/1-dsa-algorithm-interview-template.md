@@ -283,6 +283,292 @@ class ThreadSafeSolution {
 }
 ```
 
+### 📊 Java Collections — Time Complexity & Operations Reference
+
+> **Know this cold**: Interviewers expect you to justify your data structure choice with time complexity.
+
+#### 🗺️ Map Implementations
+
+| Operation | `HashMap` | `LinkedHashMap` | `TreeMap` | `ConcurrentHashMap` | `ConcurrentSkipListMap` |
+|-----------|----------|----------------|----------|--------------------|-----------------------|
+| `put(K, V)` | **O(1)** avg | **O(1)** avg | **O(log N)** | **O(1)** avg | **O(log N)** |
+| `get(K)` | **O(1)** avg | **O(1)** avg | **O(log N)** | **O(1)** avg | **O(log N)** |
+| `remove(K)` | **O(1)** avg | **O(1)** avg | **O(log N)** | **O(1)** avg | **O(log N)** |
+| `containsKey(K)` | **O(1)** avg | **O(1)** avg | **O(log N)** | **O(1)** avg | **O(log N)** |
+| `containsValue(V)` | **O(N)** | **O(N)** | **O(N)** | **O(N)** | **O(N)** |
+| Iteration order | ❌ None | ✅ Insertion order | ✅ Sorted (natural/comparator) | ❌ None | ✅ Sorted |
+| Null keys | ✅ 1 null key | ✅ 1 null key | ❌ No (if using Comparator) | ❌ No | ❌ No |
+| Null values | ✅ Yes | ✅ Yes | ✅ Yes | ❌ No | ❌ No |
+| Thread-safe | ❌ No | ❌ No | ❌ No | ✅ Yes | ✅ Yes |
+
+**Key Operations on Map**:
+```java
+Map<String, Integer> map = new HashMap<>();
+map.put("key", 1);                    // Insert/update
+map.get("key");                       // Get value (null if missing)
+map.getOrDefault("key", 0);          // Get with default
+map.containsKey("key");              // Check key exists
+map.containsValue(1);               // Check value exists (O(N)!)
+map.remove("key");                   // Remove by key
+map.size();                          // Number of entries
+map.isEmpty();                       // Check empty
+map.keySet();                        // Set of keys
+map.values();                        // Collection of values
+map.entrySet();                      // Set of Map.Entry<K,V>
+map.putIfAbsent("key", 1);          // Insert only if key missing
+map.merge("key", 1, Integer::sum);  // Atomic merge (great for counting!)
+map.compute("key", (k, v) -> v + 1); // Atomic compute
+map.forEach((k, v) -> ...);         // Iterate
+```
+
+#### 📋 List Implementations
+
+| Operation | `ArrayList` | `LinkedList` | `CopyOnWriteArrayList` | `Vector` (legacy) |
+|-----------|------------|-------------|----------------------|------------------|
+| `get(index)` | **O(1)** ⭐ | **O(N)** | **O(1)** | **O(1)** |
+| `add(E)` (end) | **O(1)** amortized | **O(1)** | **O(N)** (copies array) | **O(1)** amortized |
+| `add(index, E)` | **O(N)** (shift) | **O(N)** (traverse) | **O(N)** | **O(N)** |
+| `remove(index)` | **O(N)** (shift) | **O(N)** (traverse) | **O(N)** | **O(N)** |
+| `contains(E)` | **O(N)** | **O(N)** | **O(N)** | **O(N)** |
+| `indexOf(E)` | **O(N)** | **O(N)** | **O(N)** | **O(N)** |
+| `set(index, E)` | **O(1)** | **O(N)** | **O(N)** | **O(1)** |
+| Iterator safety | ❌ Fail-fast | ❌ Fail-fast | ✅ Snapshot (safe) | ❌ Fail-fast |
+| Thread-safe | ❌ No | ❌ No | ✅ Yes | ✅ Yes (legacy) |
+| Best for | Random access, iteration | Frequent add/remove at ends | Read-heavy concurrent | ❌ Don't use |
+
+**Key Operations on List**:
+```java
+List<String> list = new ArrayList<>();
+list.add("item");                     // Append to end — O(1)
+list.add(0, "first");                // Insert at index — O(N)
+list.get(0);                         // Access by index — O(1) ArrayList, O(N) LinkedList
+list.set(0, "updated");              // Replace at index — O(1)
+list.remove(0);                      // Remove by index — O(N)
+list.remove("item");                 // Remove first occurrence — O(N)
+list.contains("item");              // Search — O(N)
+list.indexOf("item");               // Find index — O(N)
+list.size();                         // Size
+list.isEmpty();                      // Check empty
+list.subList(0, 3);                  // View of range (inclusive, exclusive)
+list.sort(Comparator.naturalOrder()); // Sort — O(N log N)
+Collections.reverse(list);          // Reverse — O(N)
+list.toArray(new String[0]);         // Convert to array
+list.stream().filter(...).collect(...); // Stream API
+```
+
+#### 🎯 Set Implementations
+
+| Operation | `HashSet` | `LinkedHashSet` | `TreeSet` | `ConcurrentHashMap.newKeySet()` | `ConcurrentSkipListSet` |
+|-----------|----------|----------------|----------|-------------------------------|------------------------|
+| `add(E)` | **O(1)** avg | **O(1)** avg | **O(log N)** | **O(1)** avg | **O(log N)** |
+| `remove(E)` | **O(1)** avg | **O(1)** avg | **O(log N)** | **O(1)** avg | **O(log N)** |
+| `contains(E)` | **O(1)** avg | **O(1)** avg | **O(log N)** | **O(1)** avg | **O(log N)** |
+| `first()` / `last()` | ❌ N/A | ❌ N/A | **O(log N)** | ❌ N/A | **O(log N)** |
+| `floor()` / `ceiling()` | ❌ N/A | ❌ N/A | **O(log N)** | ❌ N/A | **O(log N)** |
+| Iteration order | ❌ None | ✅ Insertion order | ✅ Sorted | ❌ None | ✅ Sorted |
+| Null elements | ✅ 1 null | ✅ 1 null | ❌ No | ❌ No | ❌ No |
+| Thread-safe | ❌ No | ❌ No | ❌ No | ✅ Yes | ✅ Yes |
+
+**Key Operations on Set**:
+```java
+Set<String> set = new HashSet<>();
+set.add("item");                     // Add — O(1)
+set.remove("item");                  // Remove — O(1)
+set.contains("item");               // Check membership — O(1) ⭐
+set.size();                          // Size
+set.isEmpty();                       // Check empty
+
+// TreeSet specific (sorted operations)
+TreeSet<Integer> sorted = new TreeSet<>();
+sorted.first();                      // Smallest element — O(log N)
+sorted.last();                       // Largest element — O(log N)
+sorted.floor(5);                     // Greatest element ≤ 5 — O(log N)
+sorted.ceiling(5);                   // Smallest element ≥ 5 — O(log N)
+sorted.lower(5);                     // Greatest element < 5 — O(log N)
+sorted.higher(5);                    // Smallest element > 5 — O(log N)
+sorted.headSet(5);                   // Elements < 5
+sorted.tailSet(5);                   // Elements ≥ 5
+sorted.subSet(2, 8);                 // Elements in range [2, 8)
+sorted.pollFirst();                  // Remove and return smallest — O(log N)
+sorted.pollLast();                   // Remove and return largest — O(log N)
+```
+
+#### 📦 Queue & Deque Implementations
+
+| Operation | `ArrayDeque` | `LinkedList` | `PriorityQueue` | `ConcurrentLinkedQueue` | `LinkedBlockingQueue` | `PriorityBlockingQueue` |
+|-----------|-------------|-------------|-----------------|------------------------|--------------------|----------------------|
+| `offer(E)` / `add(E)` | **O(1)** amort | **O(1)** | **O(log N)** | **O(1)** | **O(1)** | **O(log N)** |
+| `poll()` / `remove()` | **O(1)** | **O(1)** | **O(log N)** | **O(1)** | **O(1)** | **O(log N)** |
+| `peek()` | **O(1)** | **O(1)** | **O(1)** | **O(1)** | **O(1)** | **O(1)** |
+| `contains(E)` | **O(N)** | **O(N)** | **O(N)** | **O(N)** | **O(N)** | **O(N)** |
+| `size()` | **O(1)** | **O(1)** | **O(1)** | **O(N)** ⚠️ | **O(1)** | **O(1)** |
+| Ordering | FIFO / LIFO | FIFO / LIFO | Priority (min-heap) | FIFO | FIFO | Priority |
+| Blocking | ❌ No | ❌ No | ❌ No | ❌ No | ✅ Yes | ✅ Yes |
+| Thread-safe | ❌ No | ❌ No | ❌ No | ✅ Yes | ✅ Yes | ✅ Yes |
+
+**Key Operations on Queue / Deque / PriorityQueue**:
+```java
+// ===== Queue (FIFO) =====
+Queue<Integer> queue = new ArrayDeque<>();  // ⭐ Preferred over LinkedList
+queue.offer(1);                       // Enqueue — O(1)
+queue.poll();                         // Dequeue — O(1) (null if empty)
+queue.peek();                         // Look at front — O(1)
+queue.isEmpty();                      // Check empty
+
+// ===== Deque (Double-ended, also use as Stack) =====
+Deque<Integer> deque = new ArrayDeque<>();
+deque.offerFirst(1);                  // Add to front — O(1)
+deque.offerLast(2);                   // Add to back — O(1)
+deque.pollFirst();                    // Remove from front — O(1)
+deque.pollLast();                     // Remove from back — O(1)
+deque.peekFirst();                    // Look at front — O(1)
+deque.peekLast();                     // Look at back — O(1)
+
+// ===== Stack (use Deque, NOT Stack class) =====
+Deque<Integer> stack = new ArrayDeque<>();
+stack.push(1);                        // Push — O(1)
+stack.pop();                          // Pop — O(1)
+stack.peek();                         // Top — O(1)
+
+// ===== PriorityQueue (Min-Heap by default) =====
+PriorityQueue<Integer> minHeap = new PriorityQueue<>();
+PriorityQueue<Integer> maxHeap = new PriorityQueue<>(Collections.reverseOrder());
+PriorityQueue<int[]> custom = new PriorityQueue<>((a, b) -> a[0] - b[0]); // custom comparator
+
+minHeap.offer(5);                     // Insert — O(log N)
+minHeap.poll();                       // Remove min — O(log N)
+minHeap.peek();                       // Get min — O(1)
+minHeap.size();                       // Size — O(1)
+// NOTE: PriorityQueue does NOT support O(log N) remove(Object) — it's O(N)!
+// For O(log N) arbitrary removal, use TreeMap or indexed heap
+```
+
+#### 🔑 Quick Decision Guide — Which Collection to Use?
+
+| Need | Use This | Why |
+|------|----------|-----|
+| Key-value lookup O(1) | `HashMap` | Hash table, amortized O(1) |
+| Sorted key-value | `TreeMap` | Red-black tree, O(log N), sorted iteration |
+| Key-value with insertion order | `LinkedHashMap` | O(1) lookup + linked list for order |
+| LRU Cache | `LinkedHashMap` (with `removeEldestEntry`) | Insertion/access order + auto-evict |
+| Random access list | `ArrayList` | Array-backed, O(1) indexed access |
+| Frequent insert/delete at ends | `ArrayDeque` | Faster than LinkedList, less memory |
+| FIFO queue | `ArrayDeque` | ⭐ Preferred over LinkedList for queue |
+| LIFO stack | `ArrayDeque` | ⭐ Preferred over Stack class (legacy) |
+| Min/Max element fast | `PriorityQueue` | Heap, O(1) peek, O(log N) insert/remove |
+| Unique elements O(1) | `HashSet` | Hash table, O(1) add/remove/contains |
+| Sorted unique elements | `TreeSet` | Red-black tree, O(log N), range queries |
+| Deduplication | `HashSet` or `LinkedHashSet` | O(1) contains check |
+| Counting / Frequency | `HashMap<K, Integer>` | Use `merge()` or `getOrDefault()` |
+| Sliding window | `ArrayDeque` | Use as deque for window boundaries |
+| Graph adjacency list | `HashMap<Node, List<Node>>` | O(1) neighbor lookup |
+| Interval / range queries | `TreeMap` | `floorKey()`, `ceilingKey()`, `subMap()` |
+
+---
+
+### 🧵 Concurrent Collections — Complete Reference
+
+> **Rule**: Never use regular collections (`ArrayList`, `HashMap`, `HashSet`, `LinkedList`, `TreeMap`, `PriorityQueue`) in multi-threaded code. Always swap to their concurrent counterparts.
+
+#### 📋 Non-Thread-Safe → Thread-Safe Collection Mapping
+
+| Non-Thread-Safe | Thread-Safe Replacement | When to Use |
+|----------------|------------------------|-------------|
+| `ArrayList` | `CopyOnWriteArrayList` | Read-heavy, rare writes (iterators never throw ConcurrentModificationException) |
+| `ArrayList` | `Collections.synchronizedList(new ArrayList<>())` | Balanced read/write (wraps with synchronized, must sync on iteration) |
+| `ArrayList` | `Vector` | ❌ Legacy — avoid in interviews, use CopyOnWriteArrayList instead |
+| `LinkedList` | `ConcurrentLinkedDeque` | Non-blocking concurrent deque (lock-free) |
+| `LinkedList` (as Queue) | `ConcurrentLinkedQueue` | Non-blocking concurrent FIFO queue (lock-free) |
+| `HashMap` | `ConcurrentHashMap` | ⭐ **Go-to choice**. Segment-level locking, high concurrency |
+| `HashMap` | `Collections.synchronizedMap(new HashMap<>())` | Simple synchronized wrapper (coarse lock, slower) |
+| `HashMap` | `Hashtable` | ❌ Legacy — avoid, use ConcurrentHashMap instead |
+| `TreeMap` | `ConcurrentSkipListMap` | Sorted concurrent map (O(log N) ops, lock-free reads) |
+| `HashSet` | `ConcurrentHashMap.newKeySet()` | ⭐ **Go-to for concurrent sets** (backed by ConcurrentHashMap) |
+| `HashSet` | `CopyOnWriteArraySet` | Read-heavy, small sets, rare writes |
+| `TreeSet` | `ConcurrentSkipListSet` | Sorted concurrent set (O(log N), lock-free reads) |
+| `PriorityQueue` | `PriorityBlockingQueue` | Thread-safe priority queue (blocking on take when empty) |
+| `ArrayDeque` | `ConcurrentLinkedDeque` | Non-blocking concurrent deque |
+| `ArrayDeque` (as Stack) | `ConcurrentLinkedDeque` | Use `push()`/`pop()` methods for stack behavior |
+| `LinkedList` (as Deque) | `LinkedBlockingDeque` | Bounded blocking deque (producer-consumer with capacity) |
+
+#### 🔄 Blocking Queues (Producer-Consumer Pattern)
+
+| Queue Type | Behavior | Use Case |
+|-----------|----------|----------|
+| `ArrayBlockingQueue` | Bounded, backed by array, FIFO | Fixed-size buffer between producer/consumer |
+| `LinkedBlockingQueue` | Optionally bounded, backed by linked nodes | Default choice for producer-consumer |
+| `PriorityBlockingQueue` | Unbounded, priority-ordered | Task scheduling by priority |
+| `DelayQueue` | Elements available only after delay expires | Scheduled tasks, retry with delay |
+| `SynchronousQueue` | Zero-capacity, direct handoff | Direct producer → consumer handoff (no buffering) |
+| `LinkedTransferQueue` | Combination of LinkedBlockingQueue + SynchronousQueue | High-performance producer-consumer |
+
+#### ⚛️ Atomic Variables (Lock-Free)
+
+```java
+// For counters, flags, references — avoid locks entirely
+AtomicInteger count = new AtomicInteger(0);
+count.incrementAndGet();           // thread-safe ++count
+count.getAndIncrement();           // thread-safe count++
+count.compareAndSet(expected, new); // CAS operation
+
+AtomicLong bigCount = new AtomicLong(0L);
+AtomicBoolean flag = new AtomicBoolean(false);
+AtomicReference<Node> head = new AtomicReference<>(null);
+
+// For high-contention counters (better than AtomicLong)
+LongAdder adder = new LongAdder();   // striped, reduces contention
+adder.increment();
+adder.sum();                          // get total
+```
+
+#### 🔧 Code Examples — Common Swaps
+
+```java
+// ❌ BAD: Not thread-safe
+List<String> list = new ArrayList<>();
+Map<String, Integer> map = new HashMap<>();
+Set<String> set = new HashSet<>();
+Queue<Task> queue = new LinkedList<>();
+Deque<Task> stack = new ArrayDeque<>();
+
+// ✅ GOOD: Thread-safe equivalents
+List<String> list = new CopyOnWriteArrayList<>();                // read-heavy
+List<String> list = Collections.synchronizedList(new ArrayList<>()); // balanced
+Map<String, Integer> map = new ConcurrentHashMap<>();            // ⭐ always use this
+Set<String> set = ConcurrentHashMap.newKeySet();                 // ⭐ concurrent set
+Queue<Task> queue = new ConcurrentLinkedQueue<>();               // non-blocking
+Queue<Task> queue = new LinkedBlockingQueue<>();                 // blocking (producer-consumer)
+Deque<Task> stack = new ConcurrentLinkedDeque<>();               // concurrent stack/deque
+NavigableMap<String, Integer> sorted = new ConcurrentSkipListMap<>(); // sorted + concurrent
+```
+
+#### ⚠️ Common Pitfalls to Mention
+
+```java
+// PITFALL 1: ConcurrentHashMap does NOT lock for compound operations
+map.put(key, map.get(key) + 1);  // ❌ NOT atomic! (check-then-act race)
+map.merge(key, 1, Integer::sum); // ✅ Atomic compound operation
+map.compute(key, (k, v) -> v == null ? 1 : v + 1); // ✅ Also atomic
+
+// PITFALL 2: synchronizedList needs manual sync on iteration
+List<String> syncList = Collections.synchronizedList(new ArrayList<>());
+synchronized (syncList) {          // ✅ Must sync manually for iteration
+    for (String s : syncList) {
+        // process
+    }
+}
+// CopyOnWriteArrayList does NOT need this — iterators are snapshot-based
+
+// PITFALL 3: ConcurrentHashMap does NOT allow null keys or values
+map.put(null, "value");  // ❌ NullPointerException
+map.put("key", null);    // ❌ NullPointerException
+// HashMap allows both null key and null values
+
+// PITFALL 4: Size of concurrent collections is approximate
+int size = concurrentMap.size(); // Approximate! Not exact in concurrent env
+// Use only for monitoring, NOT for logic decisions
+```
+
 ### 🧵 Concurrency Discussion Points
 
 | Scenario | Solution | Say This |
@@ -290,8 +576,16 @@ class ThreadSafeSolution {
 | Simple shared state | `synchronized` | "For simplicity, I'll use synchronized. In production, I'd consider finer-grained locks." |
 | Read-heavy workload | `ReadWriteLock` | "Since reads far outnumber writes, a ReadWriteLock gives better concurrency." |
 | Counter / flag | `AtomicInteger` / `volatile` | "For a simple counter, CAS-based AtomicInteger avoids lock overhead." |
-| Shared collection | `ConcurrentHashMap` | "ConcurrentHashMap provides thread-safe operations without locking the entire map." |
-| Producer-consumer | `BlockingQueue` | "A BlockingQueue naturally handles synchronization between producer and consumer threads." |
+| High-contention counter | `LongAdder` | "LongAdder uses striped cells to reduce contention — better than AtomicLong under high concurrency." |
+| Shared Map | `ConcurrentHashMap` | "ConcurrentHashMap provides segment-level locking, far better than synchronized HashMap." |
+| Shared List (read-heavy) | `CopyOnWriteArrayList` | "CopyOnWriteArrayList is ideal here — reads are lock-free, writes copy the array." |
+| Shared List (balanced) | `Collections.synchronizedList` | "I'll wrap with synchronizedList and manually sync during iteration." |
+| Shared Set | `ConcurrentHashMap.newKeySet()` | "Backed by ConcurrentHashMap — same great concurrency characteristics." |
+| Sorted concurrent map | `ConcurrentSkipListMap` | "ConcurrentSkipListMap gives sorted order with O(log N) lock-free reads." |
+| Priority Queue (concurrent) | `PriorityBlockingQueue` | "PriorityBlockingQueue is thread-safe and blocks consumers when empty." |
+| Producer-consumer | `LinkedBlockingQueue` | "A BlockingQueue naturally handles synchronization between producer and consumer threads." |
+| Direct handoff | `SynchronousQueue` | "SynchronousQueue does direct handoff — no buffering, producer waits for consumer." |
+| Stack (concurrent) | `ConcurrentLinkedDeque` | "I'll use ConcurrentLinkedDeque with push/pop for a lock-free concurrent stack." |
 
 ---
 
