@@ -1037,40 +1037,518 @@ chain.handle(request);  // Logging → Auth → RateLimit → Validation
 
 ---
 
-## Phase 7️⃣ — Deep Dives & Discussion (5 min)
+## Phase 7️⃣ — Deep Dives & Discussion (Reusable Across ALL LLD Problems)
 
-### 🧵 Concurrency Discussion
+> **These deep dives apply to virtually every LLD interview**. Memorize these — bring them up proactively even if the interviewer doesn't ask. It shows production-level thinking.
+
+---
+
+### 🧵 Deep Dive 1: Thread Safety & Concurrency
+
+> **Applies to**: Every LLD problem where multiple users/requests happen simultaneously
+
+#### What to Say
 
 ```
-"For thread safety, I've used:
- - ReentrantReadWriteLock: Allows concurrent reads, exclusive writes
- - ConcurrentHashMap: For O(1) thread-safe lookups
+"Let me address concurrency. In a real system, multiple threads will call these methods
+ simultaneously. Here's my approach:"
+```
+
+#### Choosing the Right Lock Strategy
+
+| Scenario | Use | Why | Code |
+|----------|-----|-----|------|
+| Simple shared state | `synchronized` | Easy, correct | `public synchronized void add(...)` |
+| Read-heavy (90%+ reads) | `ReadWriteLock` | Multiple readers, single writer | `rwLock.readLock().lock()` |
+| Single counter/flag | `AtomicInteger` / `volatile` | Lock-free, CAS-based | `counter.incrementAndGet()` |
+| Shared Map | `ConcurrentHashMap` | Segment-level locking | `new ConcurrentHashMap<>()` |
+| Producer-consumer | `BlockingQueue` | Built-in wait/notify | `new LinkedBlockingQueue<>()` |
+| Complex critical section | `ReentrantLock` | Try-lock, timeout, fairness | `lock.lock(); try {...} finally {lock.unlock()}` |
+
+#### Race Conditions to Watch For
+
+```java
+// ❌ RACE CONDITION: Check-then-act
+if (map.containsKey(key)) {
+    map.get(key).doSomething();  // Another thread may remove key between check and get!
+}
+
+// ✅ FIX: Atomic operation
+map.computeIfPresent(key, (k, v) -> { v.doSomething(); return v; });
+
+// ❌ RACE CONDITION: Double booking (Parking Lot, Hotel, Tickets)
+Spot spot = findAvailableSpot();  // Thread A and B both get same spot!
+spot.setOccupied(true);
+
+// ✅ FIX: Lock the spot, then check + assign atomically
+rwLock.writeLock().lock();
+try {
+    Spot spot = findAvailableSpot();
+    if (spot == null) throw new NoSuchElementException("No spot available");
+    spot.setOccupied(true);
+} finally {
+    rwLock.writeLock().unlock();
+}
+
+// ❌ RACE CONDITION: Lost update (Counter, Like system)
+int count = getCount();     // Both threads read 5
+setCount(count + 1);        // Both write 6 — lost one increment!
+
+// ✅ FIX: AtomicInteger
+private final AtomicInteger count = new AtomicInteger(0);
+count.incrementAndGet();    // Thread-safe, lock-free
+```
+
+#### Deadlock Prevention — Mention This Proactively
+
+```
+"To prevent deadlocks, I follow these rules:
+ 1. Lock ordering: Always acquire locks in the same global order
+ 2. Timeout: Use tryLock(timeout) instead of lock() to detect deadlocks
+ 3. Minimize lock scope: Hold locks for the shortest time possible
+ 4. Avoid nested locks: If unavoidable, document the lock order"
+```
+
+```java
+// Deadlock prevention with tryLock
+if (lock.tryLock(5, TimeUnit.SECONDS)) {
+    try {
+        // critical section
+    } finally {
+        lock.unlock();
+    }
+} else {
+    // Couldn't acquire lock — retry or throw
+    throw new TimeoutException("Lock acquisition timed out");
+}
+```
+
+---
+
+### 🚨 Deep Dive 2: Exception Handling & Error Recovery
+
+> **Applies to**: Every LLD problem — shows production-readiness
+
+#### Exception Hierarchy — What to Throw and When
+
+| Situation | Exception Type | Example |
+|-----------|---------------|---------|
+| Invalid input (null, empty, negative) | `IllegalArgumentException` | `"Vehicle ID cannot be null"` |
+| Operation not allowed in current state | `IllegalStateException` | `"Cannot cancel a shipped order"` |
+| Resource not found | `NoSuchElementException` | `"Spot S-101 not found"` |
+| Capacity exceeded | Custom `CapacityFullException` | `"Parking lot is full"` |
+| Duplicate entry | `IllegalArgumentException` | `"Vehicle already parked"` |
+| Concurrent conflict | Custom `ConflictException` | `"Spot was taken by another thread"` |
+| Timeout | `TimeoutException` | `"Lock acquisition timed out"` |
+| Security violation | `SecurityException` | `"Unauthorized access"` |
+
+#### Custom Exception Template (Use When Built-ins Don't Fit)
+
+```java
+class CapacityFullException extends RuntimeException {
+    private final String resourceType;
+    private final int currentCapacity;
+    
+    public CapacityFullException(String resourceType, int capacity) {
+        super(resourceType + " is full (capacity: " + capacity + ")");
+        this.resourceType = resourceType;
+        this.currentCapacity = capacity;
+    }
+    
+    public String getResourceType() { return resourceType; }
+    public int getCurrentCapacity() { return currentCapacity; }
+}
+
+// Usage:
+if (spots.size() >= MAX_CAPACITY) {
+    throw new CapacityFullException("ParkingLot", MAX_CAPACITY);
+}
+```
+
+#### Error Recovery Patterns
+
+```java
+// ===== Retry with exponential backoff =====
+public <T> T retryWithBackoff(Supplier<T> operation, int maxRetries) {
+    int retries = 0;
+    while (retries < maxRetries) {
+        try {
+            return operation.get();
+        } catch (Exception e) {
+            retries++;
+            if (retries >= maxRetries) throw e;
+            try {
+                Thread.sleep((long) Math.pow(2, retries) * 100); // 200ms, 400ms, 800ms...
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("Interrupted during retry", ie);
+            }
+        }
+    }
+    throw new RuntimeException("Should not reach here");
+}
+
+// ===== Graceful degradation =====
+public Entity process() {
+    try {
+        return primaryStrategy.selectEntity(entities);
+    } catch (Exception e) {
+        Logger.getInstance().log("WARN", "Primary strategy failed, falling back");
+        return fallbackStrategy.selectEntity(entities);  // degrade gracefully
+    }
+}
+```
+
+#### Say This
+
+```
+"For error handling, I'm following fail-fast: validate input immediately and throw 
+ meaningful exceptions. I'm NOT returning null or -1 — callers should handle exceptions 
+ explicitly. For production, I'd add retry with exponential backoff and graceful 
+ degradation with a fallback strategy."
+```
+
+---
+
+### 📈 Deep Dive 3: Scalability & Performance
+
+> **Applies to**: Any system that could grow beyond in-memory
+
+#### Data Structure Choices — Justify Them
+
+| Need | DS Choice | Time Complexity | Space | Say This |
+|------|----------|----------------|-------|----------|
+| Fast lookup by ID | `HashMap` | O(1) avg | O(N) | "HashMap gives constant-time lookup at the cost of linear space — right tradeoff for fast reads" |
+| Sorted + range queries | `TreeMap` | O(log N) | O(N) | "TreeMap for calendar slots where I need floor/ceiling operations" |
+| FIFO processing | `ArrayDeque` | O(1) | O(N) | "ArrayDeque is faster than LinkedList and cache-friendly" |
+| Priority processing | `PriorityQueue` | O(log N) insert/remove | O(N) | "Min-heap for scheduling by earliest deadline" |
+| Uniqueness check | `HashSet` | O(1) avg | O(N) | "HashSet for O(1) duplicate detection" |
+| LRU eviction | `LinkedHashMap` | O(1) | O(N) | "LinkedHashMap with removeEldestEntry for built-in LRU" |
+| Thread-safe map | `ConcurrentHashMap` | O(1) avg | O(N) | "ConcurrentHashMap for concurrent access without coarse locking" |
+
+#### Scaling from In-Memory to Distributed
+
+```
+"Right now this is in-memory. To scale to millions of entities, I'd:
+
+ STEP 1 — Persistence Layer:
+  - Add a Repository interface (abstracts storage)
+  - Implement InMemoryRepository (current) and DatabaseRepository (PostgreSQL/DynamoDB)
+  - Dependency Inversion: Manager depends on Repository interface, not implementation
+
+ STEP 2 — Caching:
+  - Add Redis as a read cache in front of the database
+  - Cache-aside pattern: check cache → miss → read DB → populate cache
+  - TTL-based invalidation for simplicity
+
+ STEP 3 — Horizontal Scaling:
+  - Stateless service instances behind a load balancer
+  - Shard data by entity ID (consistent hashing)
+  - Use distributed locks (Redis/ZooKeeper) instead of in-process locks
+
+ STEP 4 — Event-Driven:
+  - Replace synchronous Observer with async message queue (Kafka/SQS)
+  - Eventual consistency for notifications
+  - Dead letter queue for failed events"
+```
+
+#### Repository Pattern (Show How to Abstract Storage)
+
+```java
+// ===== Interface (abstraction) =====
+interface EntityRepository {
+    void save(Entity entity);
+    Optional<Entity> findById(String id);
+    List<Entity> findByStatus(Status status);
+    void delete(String id);
+}
+
+// ===== In-Memory Implementation (interview) =====
+class InMemoryEntityRepository implements EntityRepository {
+    private final Map<String, Entity> store = new ConcurrentHashMap<>();
+    
+    @Override
+    public void save(Entity entity) { store.put(entity.getId(), entity); }
+    @Override
+    public Optional<Entity> findById(String id) { return Optional.ofNullable(store.get(id)); }
+    @Override
+    public List<Entity> findByStatus(Status status) {
+        return store.values().stream()
+            .filter(e -> e.getStatus() == status)
+            .collect(Collectors.toList());
+    }
+    @Override
+    public void delete(String id) { store.remove(id); }
+}
+
+// ===== Database Implementation (production — mention verbally) =====
+// class JdbcEntityRepository implements EntityRepository { ... }
+// class DynamoEntityRepository implements EntityRepository { ... }
+```
+
+---
+
+### 🧪 Deep Dive 4: Testing Strategy
+
+> **Applies to**: Every LLD — shows quality mindset
+
+#### Testing Pyramid for Your Design
+
+```
+"For testing this system, I'd follow the testing pyramid:
+
+ UNIT TESTS (70%):
+  - Each Strategy independently with edge cases
+  - Entity validation (null ID, invalid type)
+  - State transitions (valid + invalid)
+  - Factory creates correct types
+  - Observer receives events correctly
+
+ INTEGRATION TESTS (20%):
+  - Manager + Strategy + Repository together
+  - Full workflow: add → process → remove
+  - Observer chain fires correctly on state change
+
+ CONCURRENCY TESTS (10%):
+  - Multiple threads adding/removing simultaneously
+  - No lost updates, no deadlocks
+  - Verify thread-safe collections behave correctly under load"
+```
+
+#### Example Unit Tests (Mention Verbally or Quick-Write)
+
+```java
+// ===== Strategy Unit Test =====
+@Test
+void roundRobin_shouldCycleThroughEntities() {
+    SimpleStrategy strategy = new SimpleStrategy();
+    List<Entity> entities = List.of(new Entity("A", TYPE_A), new Entity("B", TYPE_B));
+    
+    assertEquals("A", strategy.selectEntity(entities).getId());
+    assertEquals("B", strategy.selectEntity(entities).getId());
+    assertEquals("A", strategy.selectEntity(entities).getId()); // wraps around
+}
+
+@Test
+void strategy_shouldThrowOnEmptyList() {
+    assertThrows(IllegalStateException.class, 
+        () -> new SimpleStrategy().selectEntity(Collections.emptyList()));
+}
+
+// ===== State Transition Test =====
+@Test
+void order_shippedCannotBeCancelled() {
+    Order order = new Order("ORD-1");
+    order.next(); // → PAID
+    order.next(); // → SHIPPED
+    order.cancel(); // should NOT transition
+    assertEquals("SHIPPED", order.getStatus()); // stays SHIPPED
+}
+
+// ===== Concurrency Test =====
+@Test
+void concurrentAddsShouldNotLoseEntities() throws InterruptedException {
+    SystemManager manager = new SystemManager(new SimpleStrategy());
+    int numThreads = 100;
+    ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+    CountDownLatch latch = new CountDownLatch(numThreads);
+    
+    for (int i = 0; i < numThreads; i++) {
+        final int id = i;
+        executor.submit(() -> {
+            manager.addEntity(new Entity("E" + id, EntityType.TYPE_A));
+            latch.countDown();
+        });
+    }
+    
+    latch.await(5, TimeUnit.SECONDS);
+    assertEquals(numThreads, manager.getActiveCount()); // no lost entities
+}
+```
+
+---
+
+### 📊 Deep Dive 5: Metrics, Monitoring & Observability
+
+> **Applies to**: Every LLD — shows production awareness
+
+```
+"In production, I'd instrument this system with:
+
+ METRICS (expose via JMX or Prometheus):
+  - Operation counts: total add/remove/process calls (Counter)
+  - Active entity count (Gauge)
+  - Operation latency p50/p99 (Histogram)
+  - Error rate by exception type (Counter)
+  - Cache hit/miss ratio (if caching added)
+  - Queue depth (if async processing)
+  - Lock contention: time spent waiting for locks
+
+ HEALTH CHECK:
+  - /health endpoint returning UP/DOWN
+  - Check: database reachable, queue writable, memory < 80%
+
+ LOGGING:
+  - Structured JSON logs with correlation IDs
+  - Log every state transition (audit trail)
+  - Log every error with full stack trace
+  - WARN on near-capacity (>80% full), ERROR on full
+  
+ ALERTING:
+  - Error rate > 1% → page on-call
+  - Latency p99 > 500ms → investigate
+  - Entity count approaching capacity → capacity alert"
+```
+
+#### Metrics Code Example (Lightweight — Mention Verbally)
+
+```java
+class MetricsCollector {
+    private final AtomicLong totalOps = new AtomicLong(0);
+    private final AtomicLong errorCount = new AtomicLong(0);
+    private final LongAdder totalLatencyNanos = new LongAdder();
+    
+    public <T> T trackOperation(Supplier<T> operation) {
+        long start = System.nanoTime();
+        try {
+            T result = operation.get();
+            totalOps.incrementAndGet();
+            return result;
+        } catch (Exception e) {
+            errorCount.incrementAndGet();
+            throw e;
+        } finally {
+            totalLatencyNanos.add(System.nanoTime() - start);
+        }
+    }
+    
+    public double getErrorRate() {
+        long total = totalOps.get() + errorCount.get();
+        return total == 0 ? 0 : (double) errorCount.get() / total;
+    }
+}
+```
+
+---
+
+### 🔄 Deep Dive 6: Extensibility & Future-Proofing
+
+> **Applies to**: Every LLD — shows you think long-term
+
+#### Extension Points in Your Design
+
+```
+"My design has these extension points:
+
+ 1. NEW ALGORITHMS → Add new Strategy implementation (Open/Closed)
+    - No change to Manager class
+    - Example: Add WeightedRoundRobin just by implementing ProcessingStrategy
+
+ 2. NEW ENTITY TYPES → Add enum value + (optionally) new subclass
+    - Factory handles creation logic
+    - Existing code unchanged
+
+ 3. NEW NOTIFICATIONS → Add new Observer implementation
+    - Subscribe to events — zero change to event producers
+    - Example: Add WebhookNotifier without touching EmailNotifier
+
+ 4. NEW STATES → Add new State implementation  
+    - Define transitions in the new state class
+    - Existing states don't need modification
+
+ 5. NEW STORAGE → Add new Repository implementation
+    - Switch from InMemory to Database by swapping implementation
+    - Manager doesn't know or care about storage details
+
+ 6. NEW MIDDLEWARE → Add new Handler in Chain of Responsibility
+    - Insert anywhere in the chain
+    - Example: Add CachingHandler between Auth and Validation"
+```
+
+#### Configuration & Feature Flags (Advanced — Mention Verbally)
+
+```
+"For production, I'd make the system configurable:
+ - Strategy selection via config file / env variable (not hardcoded)
+ - Feature flags to enable/disable observers
+ - Capacity limits configurable per deployment
+ - Log level adjustable at runtime
  
- In production, I'd also consider:
- - Lock striping (partition locks by entity ID range)
- - Optimistic locking with version numbers for database
- - Actor model (each entity processes messages sequentially)"
+ This lets ops change behavior without code changes or redeployment."
 ```
 
-### 📈 Scaling Discussion
+---
+
+### 💾 Deep Dive 7: Data Integrity & Consistency
+
+> **Applies to**: Parking Lot, Booking, Inventory, Order Management — anything with limited resources
 
 ```
-"To scale this system:
- - Horizontal: Shard entities by ID/type across instances
- - Caching: Add LRU cache for frequently accessed entities
- - Event-driven: Use message queue for async operations
- - Database: Move from in-memory to distributed DB (Redis for cache, Postgres for persistence)"
+"For data integrity, I ensure:
+
+ 1. ATOMIC OPERATIONS — All resource allocation is inside a single lock:
+    - Find available → Mark occupied → Create ticket — all atomic
+    - If any step fails, nothing changes (no partial state)
+
+ 2. IDEMPOTENCY — Same request produces same result:
+    - Use idempotency keys for create operations
+    - Duplicate park request with same vehicle → return existing ticket, don't double-park
+
+ 3. NO DOUBLE BOOKING:
+    - Lock before checking availability + assigning
+    - Use compareAndSet for lock-free alternatives
+    - In distributed: use distributed locks (Redis SETNX with TTL)
+
+ 4. AUDIT TRAIL:
+    - Log every state change with timestamp, actor, before/after
+    - Use Event Sourcing pattern if full history needed
+    - Immutable event log → can reconstruct state at any point"
 ```
 
-### 🧪 Testing Discussion
+```java
+// Idempotency example:
+public Ticket parkVehicle(Vehicle vehicle) {
+    rwLock.writeLock().lock();
+    try {
+        // Idempotency: already parked?
+        if (vehicleToTicket.containsKey(vehicle.getId())) {
+            return vehicleToTicket.get(vehicle.getId()); // return existing, don't double-park
+        }
+        
+        // Atomic: find + assign + create ticket
+        Spot spot = findAvailableSpot(vehicle.getType())
+            .orElseThrow(() -> new CapacityFullException("ParkingLot", MAX_SPOTS));
+        spot.setOccupied(true);
+        spot.setVehicle(vehicle);
+        
+        Ticket ticket = new Ticket(spot, vehicle, Instant.now());
+        vehicleToTicket.put(vehicle.getId(), ticket);
+        
+        // Notify observers (async in production)
+        events.notify("VEHICLE_PARKED", ticket);
+        
+        return ticket;
+    } finally {
+        rwLock.writeLock().unlock();
+    }
+}
+```
 
-```
-"For testing, I'd write:
- - Unit tests: Each strategy independently, edge cases
- - Integration tests: Manager + Strategy together
- - Concurrency tests: Multiple threads add/remove/process simultaneously
- - Load tests: Performance under 10K entities"
-```
+---
+
+### 🏗️ Deep Dive Summary — Quick Reference Card
+
+> **Before your interview, review this card. Proactively bring up 2-3 of these:**
+
+| Deep Dive | When to Bring Up | Key Point to Make |
+|-----------|-----------------|-------------------|
+| **Thread Safety** | Always (if not asked, mention it) | "I used ReadWriteLock for concurrent reads + exclusive writes" |
+| **Error Handling** | Always | "Fail-fast with meaningful exceptions, no null returns" |
+| **Scalability** | When interviewer asks "how would this scale?" | "Repository pattern abstracts storage — swap InMemory for DB" |
+| **Testing** | End of interview or when asked | "Unit tests for each strategy, concurrency tests for race conditions" |
+| **Monitoring** | Shows production thinking | "I'd track operation count, latency p99, error rate, capacity utilization" |
+| **Extensibility** | When explaining design choices | "New algorithms = new Strategy class, zero changes to existing code" |
+| **Data Integrity** | For booking/inventory problems | "Atomic allocation inside lock, idempotency keys prevent duplicates" |
 
 ---
 
