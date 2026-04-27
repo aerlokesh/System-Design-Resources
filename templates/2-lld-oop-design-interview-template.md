@@ -150,6 +150,107 @@ public interface [SystemName]Service {
 
 ---
 
+## Phase 3.5️⃣ — Data Flow / Sequence Diagrams (3 min)
+
+> **Say**: "Let me walk through how these objects interact for the main operations."
+> **This is the Hello Interview framework step that most candidates skip** — but it shows you understand object collaboration, not just class structure.
+
+### 📋 Data Flow Template — For Each Core Operation
+
+```
+OPERATION: [e.g., Park a Vehicle]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SEQUENCE:
+  1. Client calls ParkingLotManager.parkVehicle(vehicle)
+  2. Manager validates input (null check, duplicate check)
+  3. Manager calls Strategy.findSpot(vehicle.getType(), availableSpots)
+  4. Strategy returns best available Spot (or throws CapacityFullException)
+  5. Manager marks Spot as occupied (atomic operation under write lock)
+  6. Manager creates Ticket(spot, vehicle, timestamp)
+  7. Manager publishes "VEHICLE_PARKED" event to EventManager
+  8. Observers (EmailNotifier, DashboardUpdater) react asynchronously
+  9. Manager returns Ticket to client
+
+SEQUENCE DIAGRAM:
+  Client → Manager: parkVehicle(vehicle)
+  Manager → Manager: validate(vehicle)          ✓
+  Manager → Strategy: findSpot(type, spots)
+  Strategy → Manager: Spot                      ✓
+  Manager → Spot: setOccupied(true)             [under writeLock]
+  Manager → Ticket: new Ticket(spot, vehicle)
+  Manager → EventManager: publish("PARKED", ticket)
+  EventManager → EmailNotifier: onEvent(...)    [async]
+  EventManager → Dashboard: onEvent(...)        [async]
+  Manager → Client: ticket                      ✓
+```
+
+```
+OPERATION: [e.g., Unpark a Vehicle]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SEQUENCE:
+  1. Client calls Manager.unparkVehicle(ticketId)
+  2. Manager looks up Ticket by ID (HashMap, O(1))
+  3. Manager retrieves Spot from Ticket
+  4. Manager calculates fee: Duration × hourlyRate (based on VehicleType)
+  5. Manager marks Spot as available (under write lock)
+  6. Manager creates Receipt(ticket, fee, duration)
+  7. Manager publishes "VEHICLE_UNPARKED" event
+  8. Manager returns Receipt to client
+
+STATE TRANSITIONS:
+  Spot: AVAILABLE → OCCUPIED → AVAILABLE
+  Ticket: ACTIVE → COMPLETED
+```
+
+### 🔄 State Transition Diagram Template
+
+```
+"Let me document the state transitions for key entities:"
+
+[Entity Name] States:
+  ┌────────┐     create      ┌────────┐     process     ┌───────────┐
+  │ INITIAL │ ──────────────→ │ ACTIVE  │ ──────────────→ │ COMPLETED │
+  └────────┘                  └────┬───┘                  └───────────┘
+                                   │
+                                   │ cancel
+                                   ▼
+                              ┌───────────┐
+                              │ CANCELLED  │
+                              └───────────┘
+
+Valid Transitions:
+  INITIAL → ACTIVE     (on creation)
+  ACTIVE → COMPLETED   (on success)
+  ACTIVE → CANCELLED   (on cancel)
+  ACTIVE → ERROR       (on failure)
+  
+Invalid Transitions (throw IllegalStateException):
+  COMPLETED → anything
+  CANCELLED → anything
+  ERROR → anything (terminal states)
+```
+
+### 🗣️ What to Say
+
+```
+"Before I code, let me trace through the two main flows:
+
+ WRITE PATH (park):
+   Client → Manager → Strategy → Spot assignment → Ticket creation → Event notification
+   All under a write lock for atomicity.
+
+ READ PATH (check availability):
+   Client → Manager → Filter active spots by type → Count
+   Under a read lock — multiple readers can check simultaneously.
+
+ This separation tells me I need a ReadWriteLock — reads are frequent and non-blocking,
+ writes are less frequent but must be exclusive."
+```
+
+---
+
 ## Phase 4️⃣ — Class Diagram (5 min)
 
 > **Say**: "Let me draw the class relationships."
@@ -213,65 +314,189 @@ public interface [SystemName]Service {
 
 ### 📝 Full Code Skeleton Template
 
+> **This template incorporates patterns from all the existing LLDs** in this repo (CircuitBreaker, LoadBalancer, JobScheduler, Instagram, IDGenerator, HitCounter, LoggingFramework, etc.)
+
 ```java
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.*;
+import java.util.concurrent.locks.*;
+import java.util.function.Supplier;
 import java.time.*;
+import java.util.stream.Collectors;
 
 /**
  * INTERVIEW-READY [System Name]
  * Time: 45-60 minutes
- * Patterns: [Strategy, Observer, Singleton, etc.]
+ * Patterns: [Strategy, Observer, State, Factory, etc.]
  * Focus: [Key design focus]
  */
 
-// ==================== Enums ====================
+// ==================== Custom Exception ====================
+// ⭐ Shows production thinking — always create for domain-specific errors
+
+class SystemException extends RuntimeException {
+    private final String errorCode;
+    
+    public SystemException(String message, String errorCode) {
+        super(message);
+        this.errorCode = errorCode;
+    }
+    
+    public String getErrorCode() { return errorCode; }
+}
+
+class CapacityFullException extends SystemException {
+    public CapacityFullException(String resource, int capacity) {
+        super(resource + " is full (max: " + capacity + ")", "CAPACITY_FULL");
+    }
+}
+
+class DuplicateEntityException extends SystemException {
+    public DuplicateEntityException(String entityId) {
+        super("Entity already exists: " + entityId, "DUPLICATE");
+    }
+}
+
+class EntityNotFoundException extends SystemException {
+    public EntityNotFoundException(String entityId) {
+        super("Entity not found: " + entityId, "NOT_FOUND");
+    }
+}
+
+// ==================== Enums (with fields + methods!) ====================
+// ⭐ Interviewers love enums with behavior — shows you go beyond basic enums
 
 enum EntityType {
-    TYPE_A, TYPE_B, TYPE_C
+    TYPE_A(1, "Standard"),
+    TYPE_B(2, "Premium"),
+    TYPE_C(3, "Enterprise");
+    
+    private final int priority;
+    private final String displayName;
+    
+    EntityType(int priority, String displayName) {
+        this.priority = priority;
+        this.displayName = displayName;
+    }
+    
+    public int getPriority() { return priority; }
+    public String getDisplayName() { return displayName; }
+    
+    // Enum with logic — checks if this type fits a given slot
+    public boolean fitsIn(EntityType slot) {
+        return this.priority <= slot.priority;  // lower priority fits in higher slots
+    }
 }
 
 enum Status {
-    ACTIVE, INACTIVE, COMPLETED, ERROR
+    ACTIVE, INACTIVE, COMPLETED, ERROR, CANCELLED;
+    
+    public boolean isTerminal() {
+        return this == COMPLETED || this == CANCELLED || this == ERROR;
+    }
 }
 
 // ==================== Core Entity ====================
+// ⭐ Implements Comparable for PriorityQueue / TreeSet sorting
 
-class Entity {
+class Entity implements Comparable<Entity> {
     private final String id;
     private final EntityType type;
-    private Status status;
+    private volatile Status status;                      // volatile for thread visibility
     private final Instant createdAt;
+    private final AtomicInteger usageCount;              // AtomicInteger for lock-free counting
 
     public Entity(String id, EntityType type) {
-        // ===== Input Validation =====
+        // ===== Input Validation (fail-fast) =====
         if (id == null || id.isEmpty()) {
             throw new IllegalArgumentException("Entity ID cannot be null or empty");
         }
+        Objects.requireNonNull(type, "EntityType cannot be null");  // ⭐ Objects.requireNonNull
+        
         this.id = id;
         this.type = type;
         this.status = Status.ACTIVE;
         this.createdAt = Instant.now();
+        this.usageCount = new AtomicInteger(0);
     }
 
-    // Getters (keep it concise in interview)
-    public String getId()        { return id; }
-    public EntityType getType()  { return type; }
-    public Status getStatus()    { return status; }
-    public void setStatus(Status s) { this.status = s; }
+    public void incrementUsage() { usageCount.incrementAndGet(); }
+    
+    // Getters
+    public String getId()           { return id; }
+    public EntityType getType()     { return type; }
+    public Status getStatus()       { return status; }
+    public Instant getCreatedAt()   { return createdAt; }
+    public int getUsageCount()      { return usageCount.get(); }
+    
+    public void setStatus(Status s) { 
+        if (this.status.isTerminal()) {
+            throw new IllegalStateException("Cannot change status of terminal entity: " + id);
+        }
+        this.status = s; 
+    }
+
+    // ===== Comparable — for PriorityQueue / TreeSet ordering =====
+    @Override
+    public int compareTo(Entity other) {
+        // Sort by type priority first, then by creation time
+        int typeCmp = Integer.compare(this.type.getPriority(), other.type.getPriority());
+        if (typeCmp != 0) return typeCmp;
+        return this.createdAt.compareTo(other.createdAt);
+    }
+    
+    // ===== equals/hashCode — MUST override if using in Set/Map =====
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Entity)) return false;
+        return id.equals(((Entity) o).id);
+    }
+    
+    @Override
+    public int hashCode() { return id.hashCode(); }
 
     @Override
     public String toString() {
-        return "Entity[id=" + id + ", type=" + type + ", status=" + status + "]";
+        return type.getDisplayName() + "[" + id + ", " + status + ", uses=" + usageCount.get() + "]";
+    }
+}
+
+// ==================== Observer Interface ====================
+// ⭐ Use Observer when anything needs to react to state changes
+
+interface SystemEventListener {
+    void onEvent(String eventType, Object data);
+}
+
+// ==================== Event Manager (pub/sub) ====================
+
+class EventManager {
+    private final Map<String, List<SystemEventListener>> listeners = new ConcurrentHashMap<>();
+
+    public void subscribe(String event, SystemEventListener listener) {
+        listeners.computeIfAbsent(event, k -> new CopyOnWriteArrayList<>()).add(listener);
+    }
+
+    public void unsubscribe(String event, SystemEventListener listener) {
+        List<SystemEventListener> list = listeners.get(event);
+        if (list != null) list.remove(listener);
+    }
+
+    public void publish(String event, Object data) {
+        for (SystemEventListener l : listeners.getOrDefault(event, Collections.emptyList())) {
+            try {
+                l.onEvent(event, data);
+            } catch (Exception e) {
+                System.err.println("Observer error: " + e.getMessage()); // don't let one fail break others
+            }
+        }
     }
 }
 
 // ==================== Strategy Interface ====================
 
-/**
- * Strategy Pattern: Allows swapping algorithms at runtime.
- * Open/Closed Principle: New strategies = new class, no modification.
- */
 interface ProcessingStrategy {
     Entity selectEntity(List<Entity> entities);
     String getName();
@@ -279,73 +504,81 @@ interface ProcessingStrategy {
 
 // ==================== Strategy Implementation 1 ====================
 
-class SimpleStrategy implements ProcessingStrategy {
-    private int index = 0;
+class RoundRobinStrategy implements ProcessingStrategy {
+    private final AtomicInteger index = new AtomicInteger(0);  // ⭐ AtomicInteger not plain int
 
     @Override
     public Entity selectEntity(List<Entity> entities) {
-        if (entities.isEmpty()) {
-            throw new IllegalStateException("No entities available");
-        }
-        Entity selected = entities.get(index % entities.size());
-        index++;
-        return selected;
+        if (entities.isEmpty()) throw new IllegalStateException("No entities available");
+        int i = Math.abs(index.getAndIncrement() % entities.size());
+        return entities.get(i);
     }
 
     @Override
-    public String getName() { return "SimpleRoundRobin"; }
+    public String getName() { return "RoundRobin"; }
 }
 
 // ==================== Strategy Implementation 2 ====================
 
-class PriorityStrategy implements ProcessingStrategy {
-
+class LeastUsedStrategy implements ProcessingStrategy {
     @Override
     public Entity selectEntity(List<Entity> entities) {
-        if (entities.isEmpty()) {
-            throw new IllegalStateException("No entities available");
-        }
-        // Select based on some priority logic
+        if (entities.isEmpty()) throw new IllegalStateException("No entities available");
         return entities.stream()
-            .filter(e -> e.getStatus() == Status.ACTIVE)
-            .findFirst()
-            .orElseThrow(() -> new IllegalStateException("No active entities"));
+            .min(Comparator.comparingInt(Entity::getUsageCount))
+            .orElseThrow(() -> new IllegalStateException("No entities available"));
     }
 
     @Override
-    public String getName() { return "PriorityBased"; }
+    public String getName() { return "LeastUsed"; }
 }
 
 // ==================== Manager / Coordinator ====================
 
-/**
- * Central coordinator. Uses Strategy pattern for algorithm selection.
- * Thread-safe for concurrent operations.
- */
 class SystemManager {
     private final List<Entity> entities;
-    private ProcessingStrategy strategy;
-    private final Map<String, Entity> entityMap;  // O(1) lookup by ID
+    private final Map<String, Entity> entityMap;
+    private volatile ProcessingStrategy strategy;        // ⭐ volatile for thread visibility
+    private final EventManager events;                   // ⭐ Observer for notifications
+    private final int maxCapacity;
     
     // Thread safety
-    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
+    private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
+    
+    // Metrics
+    private final AtomicLong totalOps = new AtomicLong(0);
+    private final AtomicLong errorCount = new AtomicLong(0);
 
-    public SystemManager(ProcessingStrategy strategy) {
+    public SystemManager(ProcessingStrategy strategy, int maxCapacity) {
         this.entities = new ArrayList<>();
         this.entityMap = new ConcurrentHashMap<>();
         this.strategy = strategy;
+        this.events = new EventManager();
+        this.maxCapacity = maxCapacity;
     }
 
     // ===== Core Operation 1: Add =====
-    public void addEntity(Entity entity) {
+    public Entity addEntity(Entity entity) {
         rwLock.writeLock().lock();
         try {
+            // Idempotency: already exists?
             if (entityMap.containsKey(entity.getId())) {
-                throw new IllegalArgumentException("Duplicate entity: " + entity.getId());
+                throw new DuplicateEntityException(entity.getId());
             }
+            // Capacity check
+            if (entities.size() >= maxCapacity) {
+                throw new CapacityFullException("SystemManager", maxCapacity);
+            }
+            
             entities.add(entity);
             entityMap.put(entity.getId(), entity);
-            System.out.println("Added: " + entity);
+            totalOps.incrementAndGet();
+            
+            events.publish("ENTITY_ADDED", entity);  // ⭐ Notify observers
+            return entity;
+        } catch (SystemException e) {
+            errorCount.incrementAndGet();
+            throw e;
         } finally {
             rwLock.writeLock().unlock();
         }
@@ -357,8 +590,14 @@ class SystemManager {
         try {
             List<Entity> active = entities.stream()
                 .filter(e -> e.getStatus() == Status.ACTIVE)
-                .collect(java.util.stream.Collectors.toList());
-            return strategy.selectEntity(active);
+                .collect(Collectors.toList());
+            
+            Entity selected = strategy.selectEntity(active);
+            selected.incrementUsage();
+            totalOps.incrementAndGet();
+            
+            events.publish("ENTITY_PROCESSED", selected);
+            return selected;
         } finally {
             rwLock.readLock().unlock();
         }
@@ -370,33 +609,49 @@ class SystemManager {
         try {
             Entity entity = entityMap.remove(id);
             if (entity == null) {
-                throw new NoSuchElementException("Entity not found: " + id);
+                throw new EntityNotFoundException(id);
             }
             entities.remove(entity);
             entity.setStatus(Status.COMPLETED);
-            System.out.println("Removed: " + entity);
+            totalOps.incrementAndGet();
+            
+            events.publish("ENTITY_REMOVED", entity);
             return entity;
+        } catch (EntityNotFoundException e) {
+            errorCount.incrementAndGet();
+            throw e;
         } finally {
             rwLock.writeLock().unlock();
         }
     }
 
-    // ===== Query =====
-    public int getActiveCount() {
+    // ===== Query (Optional return for lookups) =====
+    public Optional<Entity> findById(String id) {
         rwLock.readLock().lock();
         try {
-            return (int) entities.stream()
-                .filter(e -> e.getStatus() == Status.ACTIVE)
-                .count();
+            return Optional.ofNullable(entityMap.get(id));
         } finally {
             rwLock.readLock().unlock();
         }
     }
 
-    // ===== Strategy Swap =====
-    public void setStrategy(ProcessingStrategy newStrategy) {
-        this.strategy = newStrategy;
-        System.out.println("Strategy changed to: " + newStrategy.getName());
+    public int getActiveCount() {
+        rwLock.readLock().lock();
+        try {
+            return (int) entities.stream().filter(e -> e.getStatus() == Status.ACTIVE).count();
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+    
+    // ===== Strategy Swap + Observer Access =====
+    public void setStrategy(ProcessingStrategy s) { this.strategy = s; }
+    public EventManager getEvents() { return events; }
+    
+    // ===== Metrics =====
+    public double getErrorRate() {
+        long total = totalOps.get();
+        return total == 0 ? 0 : (double) errorCount.get() / total;
     }
 }
 
@@ -404,30 +659,75 @@ class SystemManager {
 
 public class SystemDemo {
     public static void main(String[] args) {
-        // Setup
-        SystemManager manager = new SystemManager(new SimpleStrategy());
+        // Setup with Strategy + Observer
+        SystemManager manager = new SystemManager(new RoundRobinStrategy(), 100);
+        
+        // Register observers
+        manager.getEvents().subscribe("ENTITY_ADDED", (event, data) -> 
+            System.out.println("📧 Email: New entity added → " + data));
+        manager.getEvents().subscribe("ENTITY_REMOVED", (event, data) -> 
+            System.out.println("📱 SMS: Entity removed → " + data));
 
         // Add entities
         manager.addEntity(new Entity("E1", EntityType.TYPE_A));
         manager.addEntity(new Entity("E2", EntityType.TYPE_B));
         manager.addEntity(new Entity("E3", EntityType.TYPE_A));
 
-        // Process
-        System.out.println("Active: " + manager.getActiveCount());
+        // Process (uses RoundRobin)
         Entity selected = manager.processNext();
         System.out.println("Selected: " + selected);
 
-        // Switch strategy
-        manager.setStrategy(new PriorityStrategy());
+        // Switch strategy at runtime
+        manager.setStrategy(new LeastUsedStrategy());
         selected = manager.processNext();
-        System.out.println("Selected with new strategy: " + selected);
+        System.out.println("Selected with LeastUsed: " + selected);
+
+        // Lookup with Optional
+        manager.findById("E1").ifPresent(e -> System.out.println("Found: " + e));
+        manager.findById("E99").ifPresentOrElse(
+            e -> System.out.println("Found: " + e),
+            () -> System.out.println("Not found!")
+        );
 
         // Remove
         manager.removeEntity("E1");
-        System.out.println("Active after removal: " + manager.getActiveCount());
+        System.out.println("Active: " + manager.getActiveCount());
+        System.out.println("Error rate: " + manager.getErrorRate());
+        
+        // Custom exception handling
+        try {
+            manager.addEntity(new Entity("E2", EntityType.TYPE_A)); // duplicate
+        } catch (DuplicateEntityException e) {
+            System.out.println("Caught: " + e.getMessage() + " [" + e.getErrorCode() + "]");
+        }
+        
+        try {
+            manager.removeEntity("E99"); // not found
+        } catch (EntityNotFoundException e) {
+            System.out.println("Caught: " + e.getMessage() + " [" + e.getErrorCode() + "]");
+        }
     }
 }
 ```
+
+### 🔑 What This Template Demonstrates (vs. a Basic Solution)
+
+| Feature | Basic | This Template | Why It Matters |
+|---------|-------|--------------|----------------|
+| Enums | Simple constants | **Fields + methods** (`priority`, `fitsIn()`, `isTerminal()`) | Shows enums are first-class objects |
+| Exceptions | `throw new RuntimeException` | **Custom hierarchy** (`SystemException` → `CapacityFull`, `Duplicate`, `NotFound`) | Domain-specific, meaningful errors |
+| Thread safety | `synchronized` | **ReadWriteLock + AtomicInteger + volatile + ConcurrentHashMap** | Shows you know granular concurrency |
+| Atomics | None | **AtomicInteger** (counter), **AtomicLong** (metrics), **volatile** (strategy) | Lock-free where possible |
+| Collections | `ArrayList`, `HashMap` | **CopyOnWriteArrayList** (observers), **ConcurrentHashMap** (lookup) | Thread-safe collections |
+| Comparable | None | **`implements Comparable<Entity>`** with multi-field comparison | For PriorityQueue/TreeSet |
+| equals/hashCode | None | **Overridden** based on ID | Required for Set/Map correctness |
+| Validation | `if (x == null)` | **`Objects.requireNonNull()`** + terminal state check | Concise, idiomatic Java |
+| Return types | Return null | **`Optional<Entity>`** for lookups | Null-safe API |
+| Observer | None | **EventManager** with publish/subscribe | Decoupled notifications |
+| Metrics | None | **AtomicLong counters** + error rate | Production awareness |
+| Idempotency | None | **Duplicate check** before insert | Data integrity |
+| Capacity | Unbounded | **maxCapacity** with `CapacityFullException` | Resource limits |
+| Strategy swap | Hardcoded | **volatile reference** + setter | Runtime algorithm change |
 
 ---
 
