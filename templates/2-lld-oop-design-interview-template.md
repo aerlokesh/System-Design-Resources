@@ -1,26 +1,57 @@
-# 🏗️ LLD / OOP Design Interview Template — Microsoft
+# 🏗️ LLD / OOP Design Interview Template — Microsoft (Discussion-Heavy Edition)
 
 > **Time**: 45-60 minutes | **Language**: Java
 > **Goal**: Demonstrate clean OOP design, SOLID principles, design patterns, concurrency awareness
-> **Framework**: Based on Hello Interview (Requirements → Entities → API → Data Flow → Design → Deep Dives)
+> **Microsoft Focus**: **80% discussion / 20% code** — they care more about WHY than WHAT you code
+> **Key Insight**: Microsoft LLD interviews are conversations. Every code choice should open a discussion.
 
 ---
 
-## ⏱️ Timeline (60 min)
+## 🚨 MICROSOFT LLD INTERVIEW MINDSET (READ THIS FIRST)
 
-| Phase | Time | What You Do |
-|-------|------|-------------|
-| **1. Requirements** | 7 min | Clarify scope, list functional + non-functional |
-| **2. Core Entities** | 5 min | Identify classes, enums, relationships |
-| **3. API / Interface Design** | 5 min | Define public methods / contracts |
-| **4. Class Diagram** | 5 min | Draw relationships (whiteboard) |
-| **5. Code Core Classes** | 25 min | Write the key classes with patterns |
-| **6. Demo + Discussion** | 8 min | Run through scenario, discuss trade-offs |
-| **7. Deep Dives** | 5 min | Concurrency, scaling, patterns |
+> **Microsoft LLD ≠ "write a complete system"**
+> **Microsoft LLD = "discuss design trade-offs while sketching classes"**
+
+### What Microsoft Actually Evaluates
+
+| Weight | What They Evaluate | How to Show It |
+|--------|-------------------|----------------|
+| **35%** | **Design trade-off discussions** | "I chose X over Y because..." at every decision |
+| **25%** | **SOLID + OOP reasoning** | Verbally justify every class/interface split |
+| **20%** | **Pattern knowledge + when NOT to use** | "Strategy works here, but Singleton would be overkill because..." |
+| **15%** | **Code quality** (clean, not complete) | Write 80-100 lines of core code, not 300 lines |
+| **5%** | **Concurrency awareness** | Mention it, show one lock, discuss alternatives |
+
+### The #1 Mistake Candidates Make
+```
+❌ WRONG: Silently coding for 25 minutes → show finished code → "any questions?"
+✅ RIGHT: Code 3-4 lines → stop → explain WHY → invite discussion → continue
+```
+
+### Golden Rule: Every 5 Lines of Code = 1 Discussion Point
+```
+Write: enum VehicleType { BIKE, CAR, TRUCK }
+Discuss: "I gave enums fields because later we need size-based pricing. 
+          Should VehicleType know its size, or should a separate SizeCalculator? 
+          I'll keep it in the enum for now — simpler, and we can extract if needed."
+```
 
 ---
 
-## Phase 1️⃣ — Requirements (7 min)
+## ⏱️ Timeline (60 min) — Discussion-Optimized
+
+| Phase | Time | What You Do | Discussion % |
+|-------|------|-------------|-------------|
+| **1. Requirements** | 8 min | Clarify scope, negotiate trade-offs | 100% talk |
+| **2. Core Entities + Relationships** | 7 min | Identify classes, justify why separate | 80% talk, 20% sketch |
+| **3. API / Interface Design** | 5 min | Define contracts, discuss alternatives | 90% talk |
+| **4. Data Flow Walkthrough** | 5 min | Trace through main operations | 100% talk |
+| **5. Code Core Classes** | 20 min | Write key classes WITH discussion pauses | 50% talk, 50% code |
+| **6. Deep Dive Discussions** | 15 min | Trade-offs, scaling, concurrency, patterns | 100% talk |
+
+---
+
+## Phase 1️⃣ — Requirements & Scope Negotiation (8 min)
 
 > **Say**: "Before I start designing, let me clarify the requirements and scope."
 
@@ -73,23 +104,33 @@
  Does this scope look right?"
 ```
 
+### 💬 DISCUSSION POINTS — Requirements Phase
+
+> **These are gold mines for showing product thinking. Use 2-3 per interview.**
+
+| Discussion Topic | What to Say | Why It Impresses |
+|-----------------|------------|-----------------|
+| **Ambiguity trade-off** | "Should a TRUCK be allowed to take 2 CAR spots, or only TRUCK spots? I'll assume only matching spots for simplicity, but can extend with a SpotAllocation strategy." | Shows you think about edge cases before coding |
+| **MVP vs Full** | "For a 45-min interview, I'll build the core park/unpark flow. But I want to design the interfaces so payment/notifications can be plugged in without changing existing code." | Shows extensibility mindset |
+| **Consistency vs Availability** | "When two cars try the last spot simultaneously — do we fail-fast (throw exception) or queue? I'll fail-fast with optimistic locking for now." | Shows distributed thinking even in OOP |
+| **Push vs Pull** | "When capacity changes, should we push notifications to a dashboard, or should the dashboard poll? I'll use Observer (push) — lower latency, more complex. Pull is simpler but has delay." | Shows you weigh trade-offs |
+| **Priority** | "If the lot is nearly full and a VIP arrives, do we reserve spots? This changes our data structure from a simple list to a priority queue." | Shows you think about data structure implications |
+
 ---
 
-## Phase 2️⃣ — Core Entities (5 min)
+## Phase 2️⃣ — Core Entities & Relationships (7 min)
 
 > **Say**: "Let me identify the core entities and their relationships."
 
 ### 🧩 Entity Identification Template
 
-Think through these categories:
-
 | Category | Question | Example |
 |----------|----------|---------|
-| **Primary Entities** | What are the main "things" in the system? | Vehicle, ParkingSpot, Ticket |
+| **Primary Entities** | What are the main "things"? | Vehicle, ParkingSpot, Ticket |
 | **Enums** | What fixed categories exist? | VehicleType, SpotType, Status |
-| **Value Objects** | What immutable data do we pass around? | Address, Money, TimeRange |
-| **Managers / Services** | Who coordinates the operations? | ParkingLotManager, BookingService |
-| **Strategies** | Are there multiple algorithms for same operation? | PricingStrategy, AllocationStrategy |
+| **Value Objects** | Immutable data we pass around? | Address, Money, TimeRange |
+| **Managers/Services** | Who coordinates? | ParkingLotManager, BookingService |
+| **Strategies** | Multiple algorithms for same operation? | PricingStrategy, AllocationStrategy |
 
 ### 📝 Entity Template
 
@@ -99,7 +140,6 @@ ENUMS:
 
 CORE CLASSES:
  - [ClassName]: [key fields] — [single responsibility]
- - [ClassName]: [key fields] — [single responsibility]
 
 INTERFACES:
  - [InterfaceName]: [key methods] — [what it abstracts]
@@ -108,6 +148,57 @@ RELATIONSHIPS:
  - [ClassA] HAS-MANY [ClassB]
  - [ClassC] IMPLEMENTS [InterfaceD]
  - [ClassE] USES [ClassF] (composition)
+```
+
+### 💬 DISCUSSION POINTS — Entity Design
+
+> **Stop after naming each entity and discuss WHY it's separate:**
+
+| Decision | Discussion Script | Principle Demonstrated |
+|----------|------------------|----------------------|
+| **Why separate Vehicle from ParkingSpot?** | "Vehicle and Spot have different lifecycles — a Vehicle exists before and after parking. Coupling them would violate SRP. Vehicle knows about itself, Spot knows about its location." | **SRP, Low Coupling** |
+| **Why a Ticket entity?** | "Ticket captures the relationship between Vehicle and Spot at a point in time. Without it, we'd need to store parking history on either Vehicle or Spot — bloating both. Ticket is the association class." | **Association Class, SRP** |
+| **Enum vs Class hierarchy?** | "For VehicleType, I'm using an enum with fields rather than a class hierarchy (Bike extends Vehicle). Why? Because the behavior difference between types is just data (size, price multiplier), not logic. If types had fundamentally different behavior (like a SelfDrivingVehicle needing different park logic), I'd use inheritance." | **Composition over Inheritance** |
+| **Interface vs Abstract Class?** | "I'll use an interface for Strategy because implementations share no state. If they shared common helper methods, I'd use an abstract class with template method pattern." | **Interface Segregation** |
+| **Mutable vs Immutable?** | "Vehicle is immutable after creation (ID, type don't change). Spot is mutable (occupied status changes). Ticket is semi-immutable — created once, only status can transition ACTIVE→COMPLETED." | **Immutability, Thread Safety** |
+
+### 💬 REUSABLE DISCUSSION: Composition vs Inheritance
+
+> **This comes up in EVERY LLD interview. Memorize this script:**
+
+```
+"I prefer composition over inheritance here. Here's why:
+
+ INHERITANCE problems:
+ - Java is single-inheritance, so I'd be locked into one hierarchy
+ - Fragile base class: changing Vehicle breaks all subtypes
+ - Tight coupling: Bike IS-A Vehicle means Bike knows Vehicle's internals
+ 
+ COMPOSITION benefits:
+ - Vehicle HAS-A VehicleType (swap types, add new types easily)
+ - Loosely coupled: VehicleType can change independently
+ - Can compose behaviors: Vehicle + ParkingPermit + InsurancePolicy
+ 
+ Rule of thumb: Use inheritance for IS-A when behavior truly differs (Shape → Circle/Square).
+ Use composition for HAS-A when it's just different data/config."
+```
+
+### 💬 REUSABLE DISCUSSION: When to Use Enum vs Class Hierarchy vs Interface
+
+```
+Use ENUM when:
+ - Fixed set of values known at compile time
+ - Behavior differences are just data (price, size, priority)
+ - Example: VehicleType.BIKE has size=1, VehicleType.TRUCK has size=3
+
+Use CLASS HIERARCHY when:
+ - Subtypes have fundamentally different behavior (different method implementations)
+ - Example: Shape → Circle.area() uses πr², Rectangle.area() uses l×w
+
+Use INTERFACE when:
+ - Multiple unrelated classes need the same contract
+ - You want to swap implementations at runtime
+ - Example: PricingStrategy → HourlyPricing, FlatPricing, SurgePricing
 ```
 
 ---
@@ -138,24 +229,33 @@ public interface [SystemName]Service {
 }
 ```
 
-### Design Principles to Mention
+### 💬 DISCUSSION POINTS — API Design
+
+| Decision | Discussion Script | Why It Matters |
+|----------|------------------|----------------|
+| **Return Ticket vs void** | "parkVehicle returns a Ticket, not void. The caller needs a handle for future operations (unpark, check status). This is the receipt pattern — every write returns a receipt." | **API Usability** |
+| **Accept ID vs Object** | "unparkVehicle takes ticketId (String), not the whole Ticket object. Why? Caller might only have the ID (from a QR code). Accepting the whole object forces caller to reconstruct it." | **Minimal Parameter Principle** |
+| **Optional vs Exception** | "findById returns Optional<Entity> instead of throwing. Why? Not finding an entity is a normal case, not an error. But parkVehicle throws CapacityFullException because that IS exceptional." | **Error Handling Philosophy** |
+| **Why an interface, not concrete class?** | "I'm defining an interface first so tests can mock it, and we can swap implementations. Today it's in-memory, tomorrow it could delegate to a microservice." | **Dependency Inversion, Testability** |
+
+### 💬 REUSABLE DISCUSSION: SOLID Principles (Have Ready for ANY LLD)
 
 | Principle | How to Apply | Say This |
 |-----------|-------------|----------|
 | **Single Responsibility** | Each class does ONE thing | "Vehicle only holds vehicle data, it doesn't know about parking logic" |
 | **Open/Closed** | Extend via interfaces, not modifying | "New vehicle types are added by implementing Vehicle interface, not modifying existing code" |
 | **Liskov Substitution** | Subtypes work anywhere parent works | "Any PricingStrategy can be swapped without breaking the system" |
-| **Interface Segregation** | Small, focused interfaces | "I'll keep the Strategy interface with just one method" |
+| **Interface Segregation** | Small, focused interfaces | "I'll keep the Strategy interface with just one method — callers shouldn't depend on methods they don't use" |
 | **Dependency Inversion** | Depend on abstractions | "ParkingLot depends on the Strategy interface, not concrete implementations" |
 
 ---
 
-## Phase 3.5️⃣ — Data Flow / Sequence Diagrams (3 min)
+## Phase 3.5️⃣ — Data Flow Walkthrough (5 min)
 
 > **Say**: "Let me walk through how these objects interact for the main operations."
-> **This is the Hello Interview framework step that most candidates skip** — but it shows you understand object collaboration, not just class structure.
+> **This is the step most candidates skip** — but it shows you understand object collaboration, not just class structure.
 
-### 📋 Data Flow Template — For Each Core Operation
+### 📋 Data Flow Template
 
 ```
 OPERATION: [e.g., Park a Vehicle]
@@ -171,38 +271,16 @@ SEQUENCE:
   7. Manager publishes "VEHICLE_PARKED" event to EventManager
   8. Observers (EmailNotifier, DashboardUpdater) react asynchronously
   9. Manager returns Ticket to client
-
-SEQUENCE DIAGRAM:
-  Client → Manager: parkVehicle(vehicle)
-  Manager → Manager: validate(vehicle)          ✓
-  Manager → Strategy: findSpot(type, spots)
-  Strategy → Manager: Spot                      ✓
-  Manager → Spot: setOccupied(true)             [under writeLock]
-  Manager → Ticket: new Ticket(spot, vehicle)
-  Manager → EventManager: publish("PARKED", ticket)
-  EventManager → EmailNotifier: onEvent(...)    [async]
-  EventManager → Dashboard: onEvent(...)        [async]
-  Manager → Client: ticket                      ✓
 ```
 
-```
-OPERATION: [e.g., Unpark a Vehicle]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+### 💬 DISCUSSION POINTS — Data Flow
 
-SEQUENCE:
-  1. Client calls Manager.unparkVehicle(ticketId)
-  2. Manager looks up Ticket by ID (HashMap, O(1))
-  3. Manager retrieves Spot from Ticket
-  4. Manager calculates fee: Duration × hourlyRate (based on VehicleType)
-  5. Manager marks Spot as available (under write lock)
-  6. Manager creates Receipt(ticket, fee, duration)
-  7. Manager publishes "VEHICLE_UNPARKED" event
-  8. Manager returns Receipt to client
-
-STATE TRANSITIONS:
-  Spot: AVAILABLE → OCCUPIED → AVAILABLE
-  Ticket: ACTIVE → COMPLETED
-```
+| Topic | Discussion Script |
+|-------|------------------|
+| **Where does validation live?** | "I validate in the Manager, not the Entity. Why? Entity validates its own invariants (non-null ID). Manager validates business rules (duplicate check, capacity). Two different concerns." |
+| **Who creates the Ticket?** | "Manager creates the Ticket, not Vehicle or Spot. Neither should know about Tickets — that would couple them. Manager is the coordinator." |
+| **Sync vs Async notifications** | "Events are published after the core operation completes. In production, I'd make this async so a slow email service doesn't block parking. For interview, I'll keep it sync but mention the trade-off." |
+| **What if Observer throws?** | "I catch exceptions in each observer so one failing listener doesn't break others. This is the resilience pattern — isolation between observers." |
 
 ### 🔄 State Transition Diagram Template
 
@@ -224,148 +302,58 @@ Valid Transitions:
   INITIAL → ACTIVE     (on creation)
   ACTIVE → COMPLETED   (on success)
   ACTIVE → CANCELLED   (on cancel)
-  ACTIVE → ERROR       (on failure)
   
 Invalid Transitions (throw IllegalStateException):
   COMPLETED → anything
-  CANCELLED → anything
-  ERROR → anything (terminal states)
+  CANCELLED → anything  (terminal states)
 ```
 
-### 🗣️ What to Say
+### 💬 REUSABLE DISCUSSION: State Machines
 
 ```
-"Before I code, let me trace through the two main flows:
+"Any entity with a lifecycle should be modeled as a state machine. Benefits:
+ 1. Explicit valid transitions — prevents illegal states (no cancelling a delivered order)
+ 2. Each state encapsulates its own behavior (State pattern)
+ 3. Easy to add new states without breaking existing ones
+ 4. Easy to audit — log every transition with timestamp
 
- WRITE PATH (park):
-   Client → Manager → Strategy → Spot assignment → Ticket creation → Event notification
-   All under a write lock for atomicity.
-
- READ PATH (check availability):
-   Client → Manager → Filter active spots by type → Count
-   Under a read lock — multiple readers can check simultaneously.
-
- This separation tells me I need a ReadWriteLock — reads are frequent and non-blocking,
- writes are less frequent but must be exclusive."
+Should I use an enum with switch statements, or the State pattern?
+ - Enum + switch: Simpler, works for ≤5 states with simple transitions
+ - State pattern: Better when states have complex behavior (Elevator: IDLE, MOVING_UP, MOVING_DOWN each handle requestFloor() differently)
+ 
+I'll start with enum + validation, and refactor to State pattern if complexity grows."
 ```
 
 ---
 
-## Phase 4️⃣ — Class Diagram (5 min)
+## Phase 4️⃣ — Code Core Classes (20 min)
 
-> **Say**: "Let me draw the class relationships."
-
-### 📊 Diagram Template (Whiteboard / Text)
-
-```
-┌─────────────────────────────────────────────────────┐
-│                    <<interface>>                      │
-│                  [StrategyInterface]                  │
-│              + execute(Input): Result                 │
-├─────────────────────────────────────────────────────┤
-         ▲                          ▲
-         │ implements               │ implements
-┌────────┴────────┐     ┌─────────┴──────────┐
-│  ConcreteStratA  │     │  ConcreteStratB     │
-│ + execute(...)   │     │ + execute(...)      │
-└─────────────────┘     └────────────────────┘
-
-┌──────────────────────────────────────────┐
-│            [Coordinator/Manager]          │
-│  - entityList: List<Entity>              │
-│  - strategy: StrategyInterface           │
-│  + coreOperation1(Input): Result         │
-│  + coreOperation2(Input): Result         │
-│  + setStrategy(StrategyInterface): void  │
-└──────────────────┬───────────────────────┘
-                   │ uses
-         ┌─────────┴─────────┐
-         │      [Entity]      │
-         │  - id: String      │
-         │  - status: Enum    │
-         │  + getters/setters │
-         └───────────────────┘
-```
-
-### Key Relationships to Show
-- **Inheritance** (▲): IS-A relationships
-- **Composition** (◆→): HAS-A (strong ownership, lifecycle tied)
-- **Aggregation** (◇→): HAS-A (weak, independent lifecycle)
-- **Interface Implementation** (▲ dashed): IMPLEMENTS
-- **Dependency** (→ dashed): USES
-
----
-
-## Phase 5️⃣ — Code Core Classes (25 min)
-
-> **Key**: Write ~150-200 lines of clean, focused code. Quality over quantity.
+> **Key**: Write ~100-120 lines of clean, focused code. **Pause every 5-10 lines to discuss.**
+> **Microsoft cares about code QUALITY, not QUANTITY.**
 
 ### 🏗️ Code Order (What to Write & When)
 
-| Order | What | Time | Lines |
-|-------|------|------|-------|
-| 1 | Enums | 2 min | 10-15 |
-| 2 | Core Entity class(es) | 5 min | 30-40 |
-| 3 | Strategy Interface | 1 min | 5 |
-| 4 | Strategy Implementation 1 | 4 min | 20-25 |
-| 5 | Strategy Implementation 2 | 4 min | 20-25 |
-| 6 | Manager / Coordinator class | 7 min | 50-60 |
-| 7 | Demo in main() | 2 min | 20-25 |
+| Order | What | Time | Lines | Discussion Pause |
+|-------|------|------|-------|-----------------|
+| 1 | Enums (with fields!) | 2 min | 10-15 | "Why I gave enums fields..." |
+| 2 | Core Entity class | 5 min | 25-30 | "Why Comparable, why equals/hashCode..." |
+| 3 | Strategy Interface + 1 Impl | 4 min | 15-20 | "Why Strategy over if-else..." |
+| 4 | Manager/Coordinator | 7 min | 40-50 | "Why ReadWriteLock, why atomic..." |
+| 5 | Quick demo in main() | 2 min | 10-15 | "Let me trace through a scenario..." |
 
-### 📝 Full Code Skeleton Template
-
-> **This template incorporates patterns from all the existing LLDs** in this repo (CircuitBreaker, LoadBalancer, JobScheduler, Instagram, IDGenerator, HitCounter, LoggingFramework, etc.)
+### 📝 Code Skeleton Template (With Discussion Pause Points)
 
 ```java
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 import java.util.concurrent.locks.*;
-import java.util.function.Supplier;
 import java.time.*;
 import java.util.stream.Collectors;
 
-/**
- * INTERVIEW-READY [System Name]
- * Time: 45-60 minutes
- * Patterns: [Strategy, Observer, State, Factory, etc.]
- * Focus: [Key design focus]
- */
-
-// ==================== Custom Exception ====================
-// ⭐ Shows production thinking — always create for domain-specific errors
-
-class SystemException extends RuntimeException {
-    private final String errorCode;
-    
-    public SystemException(String message, String errorCode) {
-        super(message);
-        this.errorCode = errorCode;
-    }
-    
-    public String getErrorCode() { return errorCode; }
-}
-
-class CapacityFullException extends SystemException {
-    public CapacityFullException(String resource, int capacity) {
-        super(resource + " is full (max: " + capacity + ")", "CAPACITY_FULL");
-    }
-}
-
-class DuplicateEntityException extends SystemException {
-    public DuplicateEntityException(String entityId) {
-        super("Entity already exists: " + entityId, "DUPLICATE");
-    }
-}
-
-class EntityNotFoundException extends SystemException {
-    public EntityNotFoundException(String entityId) {
-        super("Entity not found: " + entityId, "NOT_FOUND");
-    }
-}
-
-// ==================== Enums (with fields + methods!) ====================
-// ⭐ Interviewers love enums with behavior — shows you go beyond basic enums
+// ==================== ENUMS ====================
+// 💬 PAUSE: "I'm giving enums fields because VehicleType isn't just a label — 
+//    it carries data (priority, display name). This avoids switch statements everywhere."
 
 enum EntityType {
     TYPE_A(1, "Standard"),
@@ -383,9 +371,8 @@ enum EntityType {
     public int getPriority() { return priority; }
     public String getDisplayName() { return displayName; }
     
-    // Enum with logic — checks if this type fits a given slot
     public boolean fitsIn(EntityType slot) {
-        return this.priority <= slot.priority;  // lower priority fits in higher slots
+        return this.priority <= slot.priority;
     }
 }
 
@@ -397,23 +384,53 @@ enum Status {
     }
 }
 
-// ==================== Core Entity ====================
-// ⭐ Implements Comparable for PriorityQueue / TreeSet sorting
+// ==================== CUSTOM EXCEPTIONS ====================
+// 💬 PAUSE: "I create domain-specific exceptions rather than generic RuntimeException.
+//    This lets callers handle CapacityFull differently from NotFound — 
+//    e.g., CapacityFull might trigger a 'try another lot' flow."
+
+class SystemException extends RuntimeException {
+    private final String errorCode;
+    public SystemException(String message, String errorCode) {
+        super(message);
+        this.errorCode = errorCode;
+    }
+    public String getErrorCode() { return errorCode; }
+}
+
+class CapacityFullException extends SystemException {
+    public CapacityFullException(String resource, int capacity) {
+        super(resource + " is full (max: " + capacity + ")", "CAPACITY_FULL");
+    }
+}
+
+class EntityNotFoundException extends SystemException {
+    public EntityNotFoundException(String entityId) {
+        super("Entity not found: " + entityId, "NOT_FOUND");
+    }
+}
+
+class DuplicateEntityException extends SystemException {
+    public DuplicateEntityException(String entityId) {
+        super("Entity already exists: " + entityId, "DUPLICATE");
+    }
+}
+
+// ==================== CORE ENTITY ====================
+// 💬 PAUSE: "Entity implements Comparable for PriorityQueue sorting,
+//    overrides equals/hashCode based on ID — required for Set/Map correctness.
+//    Status is volatile for thread visibility without locking."
 
 class Entity implements Comparable<Entity> {
     private final String id;
     private final EntityType type;
     private volatile Status status;                      // volatile for thread visibility
     private final Instant createdAt;
-    private final AtomicInteger usageCount;              // AtomicInteger for lock-free counting
+    private final AtomicInteger usageCount;              // lock-free counting
 
     public Entity(String id, EntityType type) {
-        // ===== Input Validation (fail-fast) =====
-        if (id == null || id.isEmpty()) {
-            throw new IllegalArgumentException("Entity ID cannot be null or empty");
-        }
-        Objects.requireNonNull(type, "EntityType cannot be null");  // ⭐ Objects.requireNonNull
-        
+        if (id == null || id.isEmpty()) throw new IllegalArgumentException("ID cannot be null/empty");
+        Objects.requireNonNull(type, "Type cannot be null");
         this.id = id;
         this.type = type;
         this.status = Status.ACTIVE;
@@ -423,7 +440,6 @@ class Entity implements Comparable<Entity> {
 
     public void incrementUsage() { usageCount.incrementAndGet(); }
     
-    // Getters
     public String getId()           { return id; }
     public EntityType getType()     { return type; }
     public Status getStatus()       { return status; }
@@ -432,21 +448,17 @@ class Entity implements Comparable<Entity> {
     
     public void setStatus(Status s) { 
         if (this.status.isTerminal()) {
-            throw new IllegalStateException("Cannot change status of terminal entity: " + id);
+            throw new IllegalStateException("Cannot change terminal entity: " + id);
         }
         this.status = s; 
     }
 
-    // ===== Comparable — for PriorityQueue / TreeSet ordering =====
     @Override
     public int compareTo(Entity other) {
-        // Sort by type priority first, then by creation time
         int typeCmp = Integer.compare(this.type.getPriority(), other.type.getPriority());
-        if (typeCmp != 0) return typeCmp;
-        return this.createdAt.compareTo(other.createdAt);
+        return typeCmp != 0 ? typeCmp : this.createdAt.compareTo(other.createdAt);
     }
     
-    // ===== equals/hashCode — MUST override if using in Set/Map =====
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -459,18 +471,52 @@ class Entity implements Comparable<Entity> {
 
     @Override
     public String toString() {
-        return type.getDisplayName() + "[" + id + ", " + status + ", uses=" + usageCount.get() + "]";
+        return type.getDisplayName() + "[" + id + ", " + status + "]";
     }
 }
 
-// ==================== Observer Interface ====================
-// ⭐ Use Observer when anything needs to react to state changes
+// ==================== STRATEGY INTERFACE ====================
+// 💬 PAUSE: "Strategy pattern here because selection algorithm may change:
+//    RoundRobin for even distribution, LeastUsed for fairness, Random for simplicity.
+//    New algorithm = new class, zero changes to Manager."
+
+interface ProcessingStrategy {
+    Entity selectEntity(List<Entity> entities);
+    String getName();
+}
+
+class RoundRobinStrategy implements ProcessingStrategy {
+    private final AtomicInteger index = new AtomicInteger(0);
+
+    @Override
+    public Entity selectEntity(List<Entity> entities) {
+        if (entities.isEmpty()) throw new IllegalStateException("No entities available");
+        return entities.get(Math.abs(index.getAndIncrement() % entities.size()));
+    }
+    @Override
+    public String getName() { return "RoundRobin"; }
+}
+
+class LeastUsedStrategy implements ProcessingStrategy {
+    @Override
+    public Entity selectEntity(List<Entity> entities) {
+        if (entities.isEmpty()) throw new IllegalStateException("No entities available");
+        return entities.stream()
+            .min(Comparator.comparingInt(Entity::getUsageCount))
+            .orElseThrow();
+    }
+    @Override
+    public String getName() { return "LeastUsed"; }
+}
+
+// ==================== OBSERVER (Event System) ====================
+// 💬 PAUSE: "Observer decouples the event producer from consumers.
+//    Manager doesn't know WHO listens — could be email, SMS, dashboard.
+//    Adding a new listener = zero changes to Manager."
 
 interface SystemEventListener {
     void onEvent(String eventType, Object data);
 }
-
-// ==================== Event Manager (pub/sub) ====================
 
 class EventManager {
     private final Map<String, List<SystemEventListener>> listeners = new ConcurrentHashMap<>();
@@ -479,282 +525,133 @@ class EventManager {
         listeners.computeIfAbsent(event, k -> new CopyOnWriteArrayList<>()).add(listener);
     }
 
-    public void unsubscribe(String event, SystemEventListener listener) {
-        List<SystemEventListener> list = listeners.get(event);
-        if (list != null) list.remove(listener);
-    }
-
     public void publish(String event, Object data) {
         for (SystemEventListener l : listeners.getOrDefault(event, Collections.emptyList())) {
             try {
                 l.onEvent(event, data);
             } catch (Exception e) {
-                System.err.println("Observer error: " + e.getMessage()); // don't let one fail break others
+                System.err.println("Observer error: " + e.getMessage());
             }
         }
     }
 }
 
-// ==================== Strategy Interface ====================
-
-interface ProcessingStrategy {
-    Entity selectEntity(List<Entity> entities);
-    String getName();
-}
-
-// ==================== Strategy Implementation 1 ====================
-
-class RoundRobinStrategy implements ProcessingStrategy {
-    private final AtomicInteger index = new AtomicInteger(0);  // ⭐ AtomicInteger not plain int
-
-    @Override
-    public Entity selectEntity(List<Entity> entities) {
-        if (entities.isEmpty()) throw new IllegalStateException("No entities available");
-        int i = Math.abs(index.getAndIncrement() % entities.size());
-        return entities.get(i);
-    }
-
-    @Override
-    public String getName() { return "RoundRobin"; }
-}
-
-// ==================== Strategy Implementation 2 ====================
-
-class LeastUsedStrategy implements ProcessingStrategy {
-    @Override
-    public Entity selectEntity(List<Entity> entities) {
-        if (entities.isEmpty()) throw new IllegalStateException("No entities available");
-        return entities.stream()
-            .min(Comparator.comparingInt(Entity::getUsageCount))
-            .orElseThrow(() -> new IllegalStateException("No entities available"));
-    }
-
-    @Override
-    public String getName() { return "LeastUsed"; }
-}
-
-// ==================== Manager / Coordinator ====================
+// ==================== MANAGER / COORDINATOR ====================
+// 💬 PAUSE: "Manager coordinates everything. ReadWriteLock because reads (availability check)
+//    are much more frequent than writes (park/unpark). Multiple readers, single writer."
 
 class SystemManager {
-    private final List<Entity> entities;
-    private final Map<String, Entity> entityMap;
-    private volatile ProcessingStrategy strategy;        // ⭐ volatile for thread visibility
-    private final EventManager events;                   // ⭐ Observer for notifications
+    private final List<Entity> entities = new ArrayList<>();
+    private final Map<String, Entity> entityMap = new ConcurrentHashMap<>();
+    private volatile ProcessingStrategy strategy;
+    private final EventManager events = new EventManager();
     private final int maxCapacity;
-    
-    // Thread safety
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
-    
-    // Metrics
     private final AtomicLong totalOps = new AtomicLong(0);
-    private final AtomicLong errorCount = new AtomicLong(0);
 
     public SystemManager(ProcessingStrategy strategy, int maxCapacity) {
-        this.entities = new ArrayList<>();
-        this.entityMap = new ConcurrentHashMap<>();
         this.strategy = strategy;
-        this.events = new EventManager();
         this.maxCapacity = maxCapacity;
     }
 
-    // ===== Core Operation 1: Add =====
     public Entity addEntity(Entity entity) {
         rwLock.writeLock().lock();
         try {
-            // Idempotency: already exists?
-            if (entityMap.containsKey(entity.getId())) {
-                throw new DuplicateEntityException(entity.getId());
-            }
-            // Capacity check
-            if (entities.size() >= maxCapacity) {
-                throw new CapacityFullException("SystemManager", maxCapacity);
-            }
-            
+            if (entityMap.containsKey(entity.getId())) throw new DuplicateEntityException(entity.getId());
+            if (entities.size() >= maxCapacity) throw new CapacityFullException("System", maxCapacity);
             entities.add(entity);
             entityMap.put(entity.getId(), entity);
             totalOps.incrementAndGet();
-            
-            events.publish("ENTITY_ADDED", entity);  // ⭐ Notify observers
+            events.publish("ENTITY_ADDED", entity);
             return entity;
-        } catch (SystemException e) {
-            errorCount.incrementAndGet();
-            throw e;
-        } finally {
-            rwLock.writeLock().unlock();
-        }
+        } finally { rwLock.writeLock().unlock(); }
     }
 
-    // ===== Core Operation 2: Process =====
     public Entity processNext() {
         rwLock.readLock().lock();
         try {
             List<Entity> active = entities.stream()
-                .filter(e -> e.getStatus() == Status.ACTIVE)
-                .collect(Collectors.toList());
-            
+                .filter(e -> e.getStatus() == Status.ACTIVE).collect(Collectors.toList());
             Entity selected = strategy.selectEntity(active);
             selected.incrementUsage();
-            totalOps.incrementAndGet();
-            
             events.publish("ENTITY_PROCESSED", selected);
             return selected;
-        } finally {
-            rwLock.readLock().unlock();
-        }
+        } finally { rwLock.readLock().unlock(); }
     }
 
-    // ===== Core Operation 3: Remove =====
     public Entity removeEntity(String id) {
         rwLock.writeLock().lock();
         try {
             Entity entity = entityMap.remove(id);
-            if (entity == null) {
-                throw new EntityNotFoundException(id);
-            }
+            if (entity == null) throw new EntityNotFoundException(id);
             entities.remove(entity);
             entity.setStatus(Status.COMPLETED);
-            totalOps.incrementAndGet();
-            
             events.publish("ENTITY_REMOVED", entity);
             return entity;
-        } catch (EntityNotFoundException e) {
-            errorCount.incrementAndGet();
-            throw e;
-        } finally {
-            rwLock.writeLock().unlock();
-        }
+        } finally { rwLock.writeLock().unlock(); }
     }
 
-    // ===== Query (Optional return for lookups) =====
     public Optional<Entity> findById(String id) {
-        rwLock.readLock().lock();
-        try {
-            return Optional.ofNullable(entityMap.get(id));
-        } finally {
-            rwLock.readLock().unlock();
-        }
+        return Optional.ofNullable(entityMap.get(id));
     }
 
     public int getActiveCount() {
         rwLock.readLock().lock();
-        try {
-            return (int) entities.stream().filter(e -> e.getStatus() == Status.ACTIVE).count();
-        } finally {
-            rwLock.readLock().unlock();
-        }
+        try { return (int) entities.stream().filter(e -> e.getStatus() == Status.ACTIVE).count(); }
+        finally { rwLock.readLock().unlock(); }
     }
     
-    // ===== Strategy Swap + Observer Access =====
     public void setStrategy(ProcessingStrategy s) { this.strategy = s; }
     public EventManager getEvents() { return events; }
-    
-    // ===== Metrics =====
-    public double getErrorRate() {
-        long total = totalOps.get();
-        return total == 0 ? 0 : (double) errorCount.get() / total;
-    }
 }
 
-// ==================== Demo ====================
-
+// ==================== DEMO ====================
 public class SystemDemo {
     public static void main(String[] args) {
-        // Setup with Strategy + Observer
         SystemManager manager = new SystemManager(new RoundRobinStrategy(), 100);
         
-        // Register observers
-        manager.getEvents().subscribe("ENTITY_ADDED", (event, data) -> 
-            System.out.println("📧 Email: New entity added → " + data));
-        manager.getEvents().subscribe("ENTITY_REMOVED", (event, data) -> 
-            System.out.println("📱 SMS: Entity removed → " + data));
-
-        // Add entities
+        manager.getEvents().subscribe("ENTITY_ADDED", (e, d) -> System.out.println("📧 Added: " + d));
+        
         manager.addEntity(new Entity("E1", EntityType.TYPE_A));
         manager.addEntity(new Entity("E2", EntityType.TYPE_B));
-        manager.addEntity(new Entity("E3", EntityType.TYPE_A));
-
-        // Process (uses RoundRobin)
+        
         Entity selected = manager.processNext();
         System.out.println("Selected: " + selected);
-
-        // Switch strategy at runtime
-        manager.setStrategy(new LeastUsedStrategy());
+        
+        manager.setStrategy(new LeastUsedStrategy());  // runtime strategy swap
         selected = manager.processNext();
-        System.out.println("Selected with LeastUsed: " + selected);
-
-        // Lookup with Optional
+        System.out.println("LeastUsed selected: " + selected);
+        
         manager.findById("E1").ifPresent(e -> System.out.println("Found: " + e));
-        manager.findById("E99").ifPresentOrElse(
-            e -> System.out.println("Found: " + e),
-            () -> System.out.println("Not found!")
-        );
-
-        // Remove
-        manager.removeEntity("E1");
-        System.out.println("Active: " + manager.getActiveCount());
-        System.out.println("Error rate: " + manager.getErrorRate());
-        
-        // Custom exception handling
-        try {
-            manager.addEntity(new Entity("E2", EntityType.TYPE_A)); // duplicate
-        } catch (DuplicateEntityException e) {
-            System.out.println("Caught: " + e.getMessage() + " [" + e.getErrorCode() + "]");
-        }
-        
-        try {
-            manager.removeEntity("E99"); // not found
-        } catch (EntityNotFoundException e) {
-            System.out.println("Caught: " + e.getMessage() + " [" + e.getErrorCode() + "]");
-        }
     }
 }
 ```
 
-### 🔑 What This Template Demonstrates (vs. a Basic Solution)
+### 🔑 What This Code Demonstrates (Use in Discussion)
 
-| Feature | Basic | This Template | Why It Matters |
-|---------|-------|--------------|----------------|
-| Enums | Simple constants | **Fields + methods** (`priority`, `fitsIn()`, `isTerminal()`) | Shows enums are first-class objects |
-| Exceptions | `throw new RuntimeException` | **Custom hierarchy** (`SystemException` → `CapacityFull`, `Duplicate`, `NotFound`) | Domain-specific, meaningful errors |
-| Thread safety | `synchronized` | **ReadWriteLock + AtomicInteger + volatile + ConcurrentHashMap** | Shows you know granular concurrency |
-| Atomics | None | **AtomicInteger** (counter), **AtomicLong** (metrics), **volatile** (strategy) | Lock-free where possible |
-| Collections | `ArrayList`, `HashMap` | **CopyOnWriteArrayList** (observers), **ConcurrentHashMap** (lookup) | Thread-safe collections |
-| Comparable | None | **`implements Comparable<Entity>`** with multi-field comparison | For PriorityQueue/TreeSet |
-| equals/hashCode | None | **Overridden** based on ID | Required for Set/Map correctness |
-| Validation | `if (x == null)` | **`Objects.requireNonNull()`** + terminal state check | Concise, idiomatic Java |
-| Return types | Return null | **`Optional<Entity>`** for lookups | Null-safe API |
-| Observer | None | **EventManager** with publish/subscribe | Decoupled notifications |
-| Metrics | None | **AtomicLong counters** + error rate | Production awareness |
-| Idempotency | None | **Duplicate check** before insert | Data integrity |
-| Capacity | Unbounded | **maxCapacity** with `CapacityFullException` | Resource limits |
-| Strategy swap | Hardcoded | **volatile reference** + setter | Runtime algorithm change |
+| Feature | What | Why — Discussion Script |
+|---------|------|------------------------|
+| **Enums with fields** | `priority`, `fitsIn()`, `isTerminal()` | "Enums are first-class objects in Java. Putting data on enums avoids switch statements scattered across code." |
+| **Custom exceptions** | `CapacityFull`, `Duplicate`, `NotFound` | "Generic RuntimeException tells caller nothing. Domain exceptions let callers react differently — retry vs redirect vs error page." |
+| **ReadWriteLock** | Not `synchronized` | "synchronized is too coarse — blocks ALL threads. RWLock lets 100 readers check availability simultaneously, only blocking for writes." |
+| **AtomicInteger** | `usageCount`, `totalOps` | "For simple counters, AtomicInteger is lock-free (CAS-based). No need to acquire a lock just to increment." |
+| **volatile** | `strategy` field | "volatile ensures all threads see the latest strategy reference when we swap at runtime. Without it, a thread might cache a stale reference." |
+| **Optional** | `findById` returns Optional | "Returning null is a billion-dollar mistake. Optional forces callers to handle absence explicitly." |
+| **Comparable** | `compareTo` on Entity | "If we ever need a PriorityQueue (VIP parking, job scheduling), entities are already sortable. Preparation without over-engineering." |
+| **equals/hashCode** | Based on ID only | "If I put entities in a HashSet or as HashMap keys, I need consistent equals/hashCode. ID-based because two entities with same ID ARE the same entity." |
+| **Observer** | EventManager pub/sub | "Decouples notification logic. Manager doesn't know or care about email/SMS — it just publishes events. Adding Slack notifications = one new class." |
 
 ---
 
-## Phase 6️⃣ — Design Patterns Reference (Know Which to Use)
+## Phase 5️⃣ — Design Patterns Reference + Discussion Scripts
 
-### 🎯 Common LLD Patterns for Microsoft Interviews
-
-| Pattern | When to Use | Example Problem |
-|---------|------------|-----------------|
-| **Strategy** | Multiple algorithms for same operation | Load Balancer, Pricing, Sorting |
-| **Observer** | Notify multiple listeners on state change | Notification System, Event Bus, Chat |
-| **Singleton** | One instance globally (use sparingly) | Logger, Configuration Manager |
-| **Factory** | Create objects without specifying class | Vehicle creation, Message creation |
-| **State** | Object behavior changes with state | Elevator (MOVING/STOPPED), Order (PLACED/SHIPPED) |
-| **Command** | Encapsulate actions as objects | Undo/Redo, Task Queue |
-| **Decorator** | Add behavior dynamically | Pizza toppings, Stream wrappers, Logging |
-| **Builder** | Complex object construction | Query builder, Configuration |
-| **Chain of Responsibility** | Pass request through handlers | Middleware, Approval workflow, Logging |
-| **Template Method** | Algorithm skeleton with customizable steps | Game turn, ETL pipeline |
-
-### 📝 Pattern Declaration Template
+### 🎯 Pattern Declaration Template (Say This at Start of Coding)
 
 ```
 "For this problem, I'll use:
- 1. Strategy Pattern — for [swapping algorithms] because [reason]
- 2. Observer Pattern — for [notifications] because [multiple listeners need updates]
- 3. Factory Pattern — for [entity creation] because [creation logic varies by type]
+ 1. Strategy Pattern — for [algorithm selection] because [multiple algorithms, same interface]
+ 2. Observer Pattern — for [notifications] because [multiple listeners, decoupled]
+ 3. Factory Pattern — for [object creation] because [creation logic varies by type]
  
  This gives us:
  - Open/Closed: Add new strategies/observers without modifying existing code
@@ -762,1151 +659,544 @@ public class SystemDemo {
  - Testability: Can mock strategies/observers in unit tests"
 ```
 
----
+### 💬 REUSABLE PATTERN DISCUSSIONS (Memorize These)
 
-### 🔔 Observer Pattern — Interview-Ready Code
+#### Strategy Pattern Discussion
 
-> **Use when**: Multiple objects need to be notified when one object's state changes.
-> **Interview problems**: Notification System, Chat System, Event Bus, Stock Price Tracker, Auction Bidding
+```
+WHEN: Multiple algorithms for same operation (load balancing, pricing, sorting, allocation)
 
-```java
-// ===== Observer Interface =====
-interface EventListener {
-    void onEvent(String eventType, Object data);
-}
-
-// ===== Subject (Event Manager) =====
-class EventManager {
-    private final Map<String, List<EventListener>> listeners = new ConcurrentHashMap<>();
-
-    public void subscribe(String eventType, EventListener listener) {
-        listeners.computeIfAbsent(eventType, k -> new CopyOnWriteArrayList<>()).add(listener);
-    }
-
-    public void unsubscribe(String eventType, EventListener listener) {
-        List<EventListener> eventListeners = listeners.get(eventType);
-        if (eventListeners != null) {
-            eventListeners.remove(listener);
-        }
-    }
-
-    public void notify(String eventType, Object data) {
-        List<EventListener> eventListeners = listeners.getOrDefault(eventType, Collections.emptyList());
-        for (EventListener listener : eventListeners) {
-            listener.onEvent(eventType, data);
-        }
-    }
-}
-
-// ===== Concrete Observers =====
-class EmailNotifier implements EventListener {
-    @Override
-    public void onEvent(String eventType, Object data) {
-        System.out.println("📧 Email: [" + eventType + "] " + data);
-    }
-}
-
-class SMSNotifier implements EventListener {
-    @Override
-    public void onEvent(String eventType, Object data) {
-        System.out.println("📱 SMS: [" + eventType + "] " + data);
-    }
-}
-
-class SlackNotifier implements EventListener {
-    @Override
-    public void onEvent(String eventType, Object data) {
-        System.out.println("💬 Slack: [" + eventType + "] " + data);
-    }
-}
-
-// ===== Usage =====
-EventManager events = new EventManager();
-events.subscribe("ORDER_PLACED", new EmailNotifier());
-events.subscribe("ORDER_PLACED", new SMSNotifier());
-events.subscribe("ORDER_SHIPPED", new SlackNotifier());
-
-events.notify("ORDER_PLACED", "Order #123");  // Both email + SMS fire
-events.notify("ORDER_SHIPPED", "Order #123"); // Only slack fires
+DISCUSS: "I could use if-else/switch, but Strategy pattern is better because:
+ 1. Open/Closed: New algorithm = new class, no touching Manager
+ 2. Runtime swap: Can change algorithm without restart
+ 3. Testable: Test each strategy in isolation
+ 4. Combinable: Can compose strategies (PrimaryStrategy → FallbackStrategy)
+ 
+ Trade-off: More classes. For 2 algorithms, if-else might be fine. 
+ For 3+, Strategy pays for itself."
 ```
 
-**Say this**: "I'm using Observer pattern here because multiple components (email, SMS, Slack) need to react to the same event independently. Adding a new notification channel means just adding a new listener — no existing code changes. Open/Closed principle."
+#### Observer Pattern Discussion
 
----
+```
+WHEN: Multiple objects react to state changes (notifications, UI updates, logging, metrics)
 
-### 🏭 Factory Pattern — Interview-Ready Code
-
-> **Use when**: Object creation logic varies by type, and you want to decouple the caller from concrete classes.
-> **Interview problems**: Parking Lot (Vehicle types), Messaging (Message types), Shape drawing, Payment processing
-
-```java
-// ===== Product Interface =====
-interface Notification {
-    void send(String to, String message);
-    String getType();
-}
-
-// ===== Concrete Products =====
-class EmailNotification implements Notification {
-    @Override
-    public void send(String to, String message) {
-        System.out.println("Email to " + to + ": " + message);
-    }
-    @Override
-    public String getType() { return "EMAIL"; }
-}
-
-class SMSNotification implements Notification {
-    @Override
-    public void send(String to, String message) {
-        System.out.println("SMS to " + to + ": " + message);
-    }
-    @Override
-    public String getType() { return "SMS"; }
-}
-
-class PushNotification implements Notification {
-    @Override
-    public void send(String to, String message) {
-        System.out.println("Push to " + to + ": " + message);
-    }
-    @Override
-    public String getType() { return "PUSH"; }
-}
-
-// ===== Factory =====
-class NotificationFactory {
-    public static Notification create(String type) {
-        switch (type.toUpperCase()) {
-            case "EMAIL": return new EmailNotification();
-            case "SMS":   return new SMSNotification();
-            case "PUSH":  return new PushNotification();
-            default: throw new IllegalArgumentException("Unknown notification type: " + type);
-        }
-    }
-    
-    // Alternative: Registry-based factory (more extensible)
-    private static final Map<String, Supplier<Notification>> registry = new HashMap<>();
-    static {
-        registry.put("EMAIL", EmailNotification::new);
-        registry.put("SMS", SMSNotification::new);
-        registry.put("PUSH", PushNotification::new);
-    }
-    
-    public static Notification createFromRegistry(String type) {
-        Supplier<Notification> supplier = registry.get(type.toUpperCase());
-        if (supplier == null) throw new IllegalArgumentException("Unknown type: " + type);
-        return supplier.get();
-    }
-}
-
-// ===== Usage =====
-Notification notif = NotificationFactory.create("EMAIL");
-notif.send("user@example.com", "Your order shipped!");
+DISCUSS: "Why Observer over direct method calls?
+ 1. Decoupling: Publisher doesn't know about subscribers
+ 2. Open/Closed: Add new listener without changing publisher
+ 3. Dynamic: Subscribe/unsubscribe at runtime
+ 
+ Trade-off: Harder to debug (who's listening?), potential memory leaks 
+ if observers aren't unsubscribed. In production, I'd use weak references 
+ or explicit lifecycle management.
+ 
+ Sync vs Async: Here I'm doing sync notify. In production with slow observers 
+ (email), I'd use an async executor or message queue to not block the caller."
 ```
 
-**Say this**: "I'm using Factory to decouple creation logic from usage. The caller doesn't need to know about concrete classes — just asks the factory for the right type. Adding a new notification type means adding one class + one registry entry — zero changes to existing code."
+#### Factory Pattern Discussion
 
----
+```
+WHEN: Object creation varies by type, and caller shouldn't know concrete classes
 
-### 🔄 State Pattern — Interview-Ready Code
-
-> **Use when**: An object's behavior changes based on its internal state (like a state machine).
-> **Interview problems**: Elevator System, Vending Machine, Order Lifecycle, Circuit Breaker, Traffic Light
-
-```java
-// ===== State Interface =====
-interface OrderState {
-    void next(Order order);
-    void prev(Order order);
-    void cancel(Order order);
-    String getStatus();
-}
-
-// ===== Concrete States =====
-class PlacedState implements OrderState {
-    @Override
-    public void next(Order order) { order.setState(new PaidState()); }
-    @Override
-    public void prev(Order order) { System.out.println("Already at initial state"); }
-    @Override
-    public void cancel(Order order) { order.setState(new CancelledState()); }
-    @Override
-    public String getStatus() { return "PLACED"; }
-}
-
-class PaidState implements OrderState {
-    @Override
-    public void next(Order order) { order.setState(new ShippedState()); }
-    @Override
-    public void prev(Order order) { order.setState(new PlacedState()); }
-    @Override
-    public void cancel(Order order) { order.setState(new CancelledState()); }
-    @Override
-    public String getStatus() { return "PAID"; }
-}
-
-class ShippedState implements OrderState {
-    @Override
-    public void next(Order order) { order.setState(new DeliveredState()); }
-    @Override
-    public void prev(Order order) { order.setState(new PaidState()); }
-    @Override
-    public void cancel(Order order) { System.out.println("Cannot cancel shipped order!"); }
-    @Override
-    public String getStatus() { return "SHIPPED"; }
-}
-
-class DeliveredState implements OrderState {
-    @Override
-    public void next(Order order) { System.out.println("Already delivered"); }
-    @Override
-    public void prev(Order order) { System.out.println("Cannot undo delivery"); }
-    @Override
-    public void cancel(Order order) { System.out.println("Cannot cancel delivered order"); }
-    @Override
-    public String getStatus() { return "DELIVERED"; }
-}
-
-class CancelledState implements OrderState {
-    @Override
-    public void next(Order order) { System.out.println("Order is cancelled"); }
-    @Override
-    public void prev(Order order) { System.out.println("Order is cancelled"); }
-    @Override
-    public void cancel(Order order) { System.out.println("Already cancelled"); }
-    @Override
-    public String getStatus() { return "CANCELLED"; }
-}
-
-// ===== Context (Order) =====
-class Order {
-    private OrderState state;
-    private final String orderId;
-    
-    public Order(String orderId) {
-        this.orderId = orderId;
-        this.state = new PlacedState();  // initial state
-    }
-    
-    public void setState(OrderState state) {
-        System.out.println("Order " + orderId + ": " + this.state.getStatus() + " → " + state.getStatus());
-        this.state = state;
-    }
-    
-    public void next()   { state.next(this); }
-    public void prev()   { state.prev(this); }
-    public void cancel() { state.cancel(this); }
-    public String getStatus() { return state.getStatus(); }
-}
-
-// ===== Usage =====
-Order order = new Order("ORD-001");    // PLACED
-order.next();                           // PLACED → PAID
-order.next();                           // PAID → SHIPPED
-order.cancel();                         // "Cannot cancel shipped order!"
-order.next();                           // SHIPPED → DELIVERED
+DISCUSS: "Factory vs Constructor — when to use which?
+ - Simple objects with few params → Constructor directly
+ - Creation logic varies by type → Factory
+ - Complex objects with many params → Builder
+ 
+ I'm using a registry-based factory (Map<String, Supplier<T>>) rather than 
+ switch-case because new types can self-register without modifying the factory."
 ```
 
-**Say this**: "I'm using State pattern instead of if-else chains for status. Each state encapsulates its own transition rules — much cleaner than a giant switch statement. Adding a new state (like REFUNDED) means one new class, no changes to existing states. It also prevents invalid transitions — ShippedState knows it can't be cancelled."
+#### State Pattern Discussion
 
----
+```
+WHEN: Object behavior changes based on internal state (elevator, order, circuit breaker)
 
-### 🏗️ Singleton Pattern — Interview-Ready Code
-
-> **Use when**: Exactly one instance needed globally. **Use sparingly** — often overused.
-> **Interview problems**: Logger, Configuration Manager, Connection Pool, Cache Manager
-
-```java
-// ===== Thread-Safe Singleton (Bill Pugh — Best approach) =====
-class Logger {
-    // Inner class loaded lazily by JVM — thread-safe without synchronization
-    private static class Holder {
-        private static final Logger INSTANCE = new Logger();
-    }
-
-    private final List<String> logs = new CopyOnWriteArrayList<>();
-
-    private Logger() { }  // private constructor
-
-    public static Logger getInstance() {
-        return Holder.INSTANCE;
-    }
-
-    public void log(String level, String message) {
-        String entry = "[" + level + "] " + Instant.now() + ": " + message;
-        logs.add(entry);
-        System.out.println(entry);
-    }
-
-    public List<String> getLogs() {
-        return Collections.unmodifiableList(logs);
-    }
-}
-
-// ===== Usage (same instance everywhere) =====
-Logger.getInstance().log("INFO", "System started");
-Logger.getInstance().log("ERROR", "Connection failed");
+DISCUSS: "State pattern vs enum + switch:
+ - Enum + switch: Simpler for ≤4 states with simple transitions
+ - State pattern: When each state has complex behavior
+ 
+ Example: Elevator IDLE handles requestFloor() by starting to move.
+ Elevator MOVING_UP handles requestFloor() by adding to queue.
+ Completely different behavior per state → State pattern.
+ 
+ Order status PLACED/PAID/SHIPPED is just transition validation → enum is fine."
 ```
 
-**Say this**: "I'm using Bill Pugh Singleton — the inner static class is loaded lazily by the JVM on first access, which is inherently thread-safe without needing synchronized blocks or volatile. It's the cleanest approach in Java."
+#### Singleton Discussion (When They Ask)
 
----
-
-### ⌨️ Command Pattern — Interview-Ready Code
-
-> **Use when**: Need to encapsulate actions as objects — supports undo/redo, queuing, logging.
-> **Interview problems**: Text Editor (Undo/Redo), Task Queue, Smart Home Remote, Transaction System
-
-```java
-// ===== Command Interface =====
-interface Command {
-    void execute();
-    void undo();
-    String getDescription();
-}
-
-// ===== Concrete Commands =====
-class AddTextCommand implements Command {
-    private final StringBuilder document;
-    private final String textToAdd;
-    private final int position;
-    
-    public AddTextCommand(StringBuilder document, String text) {
-        this.document = document;
-        this.textToAdd = text;
-        this.position = document.length();
-    }
-    
-    @Override
-    public void execute() { document.append(textToAdd); }
-    @Override
-    public void undo() { document.delete(position, position + textToAdd.length()); }
-    @Override
-    public String getDescription() { return "Add '" + textToAdd + "'"; }
-}
-
-class DeleteTextCommand implements Command {
-    private final StringBuilder document;
-    private final int start, end;
-    private String deletedText;
-    
-    public DeleteTextCommand(StringBuilder document, int start, int end) {
-        this.document = document;
-        this.start = start;
-        this.end = end;
-    }
-    
-    @Override
-    public void execute() {
-        deletedText = document.substring(start, end);
-        document.delete(start, end);
-    }
-    @Override
-    public void undo() { document.insert(start, deletedText); }
-    @Override
-    public String getDescription() { return "Delete '" + deletedText + "'"; }
-}
-
-// ===== Invoker (with Undo/Redo stack) =====
-class TextEditor {
-    private final StringBuilder document = new StringBuilder();
-    private final Deque<Command> undoStack = new ArrayDeque<>();
-    private final Deque<Command> redoStack = new ArrayDeque<>();
-    
-    public void executeCommand(Command cmd) {
-        cmd.execute();
-        undoStack.push(cmd);
-        redoStack.clear();  // clear redo history on new action
-        System.out.println("Executed: " + cmd.getDescription() + " → \"" + document + "\"");
-    }
-    
-    public void undo() {
-        if (undoStack.isEmpty()) { System.out.println("Nothing to undo"); return; }
-        Command cmd = undoStack.pop();
-        cmd.undo();
-        redoStack.push(cmd);
-        System.out.println("Undo: " + cmd.getDescription() + " → \"" + document + "\"");
-    }
-    
-    public void redo() {
-        if (redoStack.isEmpty()) { System.out.println("Nothing to redo"); return; }
-        Command cmd = redoStack.pop();
-        cmd.execute();
-        undoStack.push(cmd);
-        System.out.println("Redo: " + cmd.getDescription() + " → \"" + document + "\"");
-    }
-}
-
-// ===== Usage =====
-TextEditor editor = new TextEditor();
-editor.executeCommand(new AddTextCommand(editor.document, "Hello"));   // "Hello"
-editor.executeCommand(new AddTextCommand(editor.document, " World"));  // "Hello World"
-editor.undo();                                                          // "Hello"
-editor.redo();                                                          // "Hello World"
+```
+DISCUSS: "I generally avoid Singleton. Problems:
+ 1. Global state → hidden dependencies → hard to test
+ 2. Violates SRP (manages its own lifecycle AND business logic)
+ 3. Tight coupling everywhere
+ 
+ When I'd use it: Logger, Configuration Manager, Connection Pool — 
+ truly global, stateless or read-heavy resources.
+ 
+ Better alternative: Dependency Injection — create one instance and inject it.
+ Same effect, but explicit and testable."
 ```
 
-**Say this**: "Command pattern lets me encapsulate each action as an object with execute() and undo(). This naturally gives us undo/redo with two stacks — much cleaner than trying to reverse-engineer state changes."
+#### Command Pattern Discussion
 
----
+```
+WHEN: Encapsulate actions as objects — undo/redo, queuing, logging
 
-### 🎨 Decorator Pattern — Interview-Ready Code
-
-> **Use when**: Add behavior dynamically without modifying existing classes. Wraps objects.
-> **Interview problems**: Pizza/Coffee toppings, Message encryption/compression, Logging wrappers, Stream processing
-
-```java
-// ===== Component Interface =====
-interface DataSource {
-    void writeData(String data);
-    String readData();
-}
-
-// ===== Concrete Component =====
-class FileDataSource implements DataSource {
-    private String data = "";
-    
-    @Override
-    public void writeData(String data) { this.data = data; }
-    @Override
-    public String readData() { return data; }
-}
-
-// ===== Base Decorator =====
-abstract class DataSourceDecorator implements DataSource {
-    protected final DataSource wrapped;
-    
-    public DataSourceDecorator(DataSource source) { this.wrapped = source; }
-    
-    @Override
-    public void writeData(String data) { wrapped.writeData(data); }
-    @Override
-    public String readData() { return wrapped.readData(); }
-}
-
-// ===== Concrete Decorators =====
-class EncryptionDecorator extends DataSourceDecorator {
-    public EncryptionDecorator(DataSource source) { super(source); }
-    
-    @Override
-    public void writeData(String data) {
-        System.out.println("🔒 Encrypting data...");
-        super.writeData(encode(data));  // encrypt before writing
-    }
-    @Override
-    public String readData() {
-        return decode(super.readData()); // decrypt after reading
-    }
-    
-    private String encode(String data) { return Base64.getEncoder().encodeToString(data.getBytes()); }
-    private String decode(String data) { return new String(Base64.getDecoder().decode(data)); }
-}
-
-class CompressionDecorator extends DataSourceDecorator {
-    public CompressionDecorator(DataSource source) { super(source); }
-    
-    @Override
-    public void writeData(String data) {
-        System.out.println("📦 Compressing data...");
-        super.writeData("[compressed]" + data);
-    }
-    @Override
-    public String readData() {
-        return super.readData().replace("[compressed]", "");
-    }
-}
-
-class LoggingDecorator extends DataSourceDecorator {
-    public LoggingDecorator(DataSource source) { super(source); }
-    
-    @Override
-    public void writeData(String data) {
-        System.out.println("📝 LOG: Writing " + data.length() + " chars");
-        super.writeData(data);
-    }
-}
-
-// ===== Usage — Stack decorators like layers =====
-DataSource source = new LoggingDecorator(
-                        new EncryptionDecorator(
-                            new CompressionDecorator(
-                                new FileDataSource())));
-source.writeData("Secret message");  // Logs → Encrypts → Compresses → Writes
-String data = source.readData();     // Reads → Decompresses → Decrypts
+DISCUSS: "Command is perfect for undo/redo because each action is an object with 
+ execute() and undo(). Two stacks (undo + redo) give us full history.
+ 
+ The key insight: redo stack clears on new action. If I undo 3 times then 
+ type something new, those 3 undone actions are gone forever. This matches 
+ user expectations from every text editor."
 ```
 
-**Say this**: "Decorator lets me stack behaviors like layers — logging, encryption, compression — without modifying the base class. Each decorator wraps the previous one. I can add/remove behaviors at runtime by composing different decorators. Java's own InputStream/BufferedInputStream uses this exact pattern."
+#### Decorator Discussion
 
----
+```
+WHEN: Add behavior dynamically without modifying existing classes (layering)
 
-### 🔗 Chain of Responsibility — Interview-Ready Code
-
-> **Use when**: Multiple handlers process a request, each deciding to handle it or pass to the next.
-> **Interview problems**: Middleware pipeline, Approval workflow, Request validation, Logging levels
-
-```java
-// ===== Handler Interface =====
-abstract class RequestHandler {
-    protected RequestHandler next;
-
-    public RequestHandler setNext(RequestHandler next) {
-        this.next = next;
-        return next;  // enables chaining: a.setNext(b).setNext(c)
-    }
-
-    public void handle(Request request) {
-        if (next != null) next.handle(request);
-    }
-}
-
-// ===== Concrete Handlers =====
-class AuthenticationHandler extends RequestHandler {
-    @Override
-    public void handle(Request request) {
-        if (request.getToken() == null) {
-            throw new SecurityException("No auth token!");
-        }
-        System.out.println("✅ Auth: Token valid");
-        super.handle(request);  // pass to next
-    }
-}
-
-class RateLimitHandler extends RequestHandler {
-    private final Map<String, Integer> requestCounts = new ConcurrentHashMap<>();
-    private static final int MAX_REQUESTS = 100;
-
-    @Override
-    public void handle(Request request) {
-        int count = requestCounts.merge(request.getUserId(), 1, Integer::sum);
-        if (count > MAX_REQUESTS) {
-            throw new RuntimeException("Rate limit exceeded for: " + request.getUserId());
-        }
-        System.out.println("✅ Rate Limit: " + count + "/" + MAX_REQUESTS);
-        super.handle(request);
-    }
-}
-
-class ValidationHandler extends RequestHandler {
-    @Override
-    public void handle(Request request) {
-        if (request.getBody() == null || request.getBody().isEmpty()) {
-            throw new IllegalArgumentException("Request body cannot be empty");
-        }
-        System.out.println("✅ Validation: Body is valid");
-        super.handle(request);
-    }
-}
-
-class LoggingHandler extends RequestHandler {
-    @Override
-    public void handle(Request request) {
-        System.out.println("📝 Logging: " + request.getMethod() + " " + request.getPath());
-        super.handle(request);
-    }
-}
-
-// ===== Build the chain =====
-RequestHandler chain = new LoggingHandler();
-chain.setNext(new AuthenticationHandler())
-     .setNext(new RateLimitHandler())
-     .setNext(new ValidationHandler());
-
-chain.handle(request);  // Logging → Auth → RateLimit → Validation
+DISCUSS: "Decorator vs Inheritance for adding features:
+ - Inheritance: Compile-time, one combination
+ - Decorator: Runtime, any combination of layers
+ 
+ Example: DataSource → EncryptionDecorator → CompressionDecorator → LoggingDecorator
+ I can stack any combination without 2^N subclasses.
+ 
+ Java uses this: InputStream → BufferedInputStream → GZIPInputStream
+ Real world: Middleware in web frameworks (auth → rate limit → logging → handler)"
 ```
 
-**Say this**: "Chain of Responsibility lets me build a pipeline of handlers. Each handler does one thing (SRP) and decides to pass or stop. Adding a new middleware step means adding one class and inserting it in the chain — zero changes to existing handlers. This is exactly how web frameworks like Spring's filter chain work."
+#### Chain of Responsibility Discussion
+
+```
+WHEN: Multiple handlers process a request, each deciding to handle or pass
+
+DISCUSS: "Chain of Responsibility vs if-else-if:
+ - Chain: Each handler is independent, reorderable, testable separately
+ - if-else: All logic in one place, hard to extend
+ 
+ Key design choice: Should handlers always pass to next, or can they short-circuit?
+ Auth failure → stop (short-circuit). Logging → always pass.
+ 
+ Real world: Servlet filters, Spring interceptors, Express middleware."
+```
+
+### 🧩 Pattern Combination Guide
+
+| Problem Type | Patterns | Why |
+|-------------|----------|-----|
+| **Parking Lot** | Strategy + Factory + Observer | Strategy: spot allocation, Factory: vehicle creation, Observer: capacity alerts |
+| **Elevator** | State + Strategy + Observer | State: elevator mode, Strategy: scheduling, Observer: floor display |
+| **Chat** | Observer + Command + Mediator | Observer: message broadcast, Command: message history, Mediator: routing |
+| **File System** | Composite + Decorator | Composite: folder/file tree, Decorator: permissions/encryption |
+| **Rate Limiter** | Strategy + Chain | Strategy: algorithm (token bucket/sliding window), Chain: middleware pipeline |
+| **Text Editor** | Command + Observer | Command: undo/redo, Observer: UI updates |
+| **Order Mgmt** | State + Observer + Factory | State: lifecycle, Observer: notifications, Factory: order creation |
+| **Logging** | Singleton + Chain + Decorator | Singleton: logger, Chain: level filtering, Decorator: formatting |
 
 ---
 
-### 🧩 Pattern Combination Guide — Which Patterns Go Together
+## Phase 6️⃣ — Deep Dive Discussions (15 min)
 
-> In real interviews, you almost always combine 2-3 patterns. Here's what pairs well:
-
-| Problem Type | Combine These Patterns | Why |
-|-------------|----------------------|-----|
-| **Notification System** | Observer + Strategy + Factory | Observer for event dispatch, Strategy for channel routing, Factory for notification creation |
-| **Parking Lot** | Strategy + Factory + Observer | Strategy for spot allocation, Factory for vehicle creation, Observer for capacity alerts |
-| **Elevator System** | State + Strategy + Observer | State for elevator mode, Strategy for scheduling algo, Observer for floor display updates |
-| **Chat System** | Observer + Command + Singleton | Observer for message broadcasting, Command for message history/undo, Singleton for chat server |
-| **File System** | Composite + Decorator + Observer | Composite for folder/file tree, Decorator for permissions/encryption, Observer for file watchers |
-| **Rate Limiter** | Strategy + Chain of Responsibility | Strategy for rate-limit algorithm, Chain for middleware pipeline |
-| **Text Editor** | Command + Observer + Singleton | Command for undo/redo, Observer for UI updates, Singleton for editor instance |
-| **Order Management** | State + Observer + Factory | State for order lifecycle, Observer for status notifications, Factory for order creation |
-| **Logging Framework** | Singleton + Chain of Responsibility + Decorator | Singleton for logger, Chain for log-level filtering, Decorator for formatting |
-| **Vending Machine** | State + Strategy | State for machine modes (idle/dispensing/out-of-stock), Strategy for payment methods |
-
----
-
-## Phase 7️⃣ — Deep Dives & Discussion (Reusable Across ALL LLD Problems)
-
-> **These deep dives apply to virtually every LLD interview**. Memorize these — bring them up proactively even if the interviewer doesn't ask. It shows production-level thinking.
+> **This is where Microsoft interviews are won or lost. The interviewer will probe you here.**
+> **Have 3-4 of these ready. Proactively bring them up even if not asked.**
 
 ---
 
 ### 🧵 Deep Dive 1: Thread Safety & Concurrency
 
-> **Applies to**: Every LLD problem where multiple users/requests happen simultaneously
+> **Applies to**: EVERY LLD problem
 
-#### What to Say
-
-```
-"Let me address concurrency. In a real system, multiple threads will call these methods
- simultaneously. Here's my approach:"
-```
-
-#### Choosing the Right Lock Strategy
-
-| Scenario | Use | Why | Code |
-|----------|-----|-----|------|
-| Simple shared state | `synchronized` | Easy, correct | `public synchronized void add(...)` |
-| Read-heavy (90%+ reads) | `ReadWriteLock` | Multiple readers, single writer | `rwLock.readLock().lock()` |
-| Single counter/flag | `AtomicInteger` / `volatile` | Lock-free, CAS-based | `counter.incrementAndGet()` |
-| Shared Map | `ConcurrentHashMap` | Segment-level locking | `new ConcurrentHashMap<>()` |
-| Producer-consumer | `BlockingQueue` | Built-in wait/notify | `new LinkedBlockingQueue<>()` |
-| Complex critical section | `ReentrantLock` | Try-lock, timeout, fairness | `lock.lock(); try {...} finally {lock.unlock()}` |
-
-#### Race Conditions to Watch For
-
-```java
-// ❌ RACE CONDITION: Check-then-act
-if (map.containsKey(key)) {
-    map.get(key).doSomething();  // Another thread may remove key between check and get!
-}
-
-// ✅ FIX: Atomic operation
-map.computeIfPresent(key, (k, v) -> { v.doSomething(); return v; });
-
-// ❌ RACE CONDITION: Double booking (Parking Lot, Hotel, Tickets)
-Spot spot = findAvailableSpot();  // Thread A and B both get same spot!
-spot.setOccupied(true);
-
-// ✅ FIX: Lock the spot, then check + assign atomically
-rwLock.writeLock().lock();
-try {
-    Spot spot = findAvailableSpot();
-    if (spot == null) throw new NoSuchElementException("No spot available");
-    spot.setOccupied(true);
-} finally {
-    rwLock.writeLock().unlock();
-}
-
-// ❌ RACE CONDITION: Lost update (Counter, Like system)
-int count = getCount();     // Both threads read 5
-setCount(count + 1);        // Both write 6 — lost one increment!
-
-// ✅ FIX: AtomicInteger
-private final AtomicInteger count = new AtomicInteger(0);
-count.incrementAndGet();    // Thread-safe, lock-free
-```
-
-#### Deadlock Prevention — Mention This Proactively
+#### 💬 Discussion Script: Choosing the Right Lock
 
 ```
-"To prevent deadlocks, I follow these rules:
- 1. Lock ordering: Always acquire locks in the same global order
- 2. Timeout: Use tryLock(timeout) instead of lock() to detect deadlocks
- 3. Minimize lock scope: Hold locks for the shortest time possible
- 4. Avoid nested locks: If unavoidable, document the lock order"
+"For concurrency, I need to think about read/write patterns:
+
+ Read-heavy (90%+ reads like availability check):
+  → ReadWriteLock — multiple concurrent readers, exclusive writer
+  → ConcurrentHashMap for O(1) lookups
+  
+ Write-heavy (counters, metrics):
+  → AtomicInteger/AtomicLong — lock-free CAS operations
+  → LongAdder for high-contention counters (better than AtomicLong)
+
+ Single shared resource:
+  → synchronized or ReentrantLock
+  → tryLock(timeout) for deadlock prevention
+
+ Producer-consumer:
+  → BlockingQueue — built-in wait/notify semantics
+
+ I chose ReadWriteLock here because checking availability (read) happens 
+ 100x more often than parking (write). synchronized would serialize ALL operations."
 ```
 
-```java
-// Deadlock prevention with tryLock
-if (lock.tryLock(5, TimeUnit.SECONDS)) {
-    try {
-        // critical section
-    } finally {
-        lock.unlock();
-    }
-} else {
-    // Couldn't acquire lock — retry or throw
-    throw new TimeoutException("Lock acquisition timed out");
-}
+#### 💬 Discussion Script: Race Conditions
+
+```
+"The classic race condition in this problem:
+
+ Thread A: finds spot S1 available → about to assign
+ Thread B: finds spot S1 available → assigns S1 ← DOUBLE BOOKING!
+ Thread A: assigns S1 ← BOTH think they got it
+
+ Fix: The find + assign must be ATOMIC (inside a single write lock).
+ This is the 'check-then-act' pattern — always a race condition unless atomic.
+
+ In distributed systems, I'd use:
+  - Optimistic locking (version number): Try to update, fail if version changed
+  - Pessimistic locking (SELECT FOR UPDATE): Lock the row before reading
+  - Redis SETNX: Distributed lock with TTL for auto-release"
+```
+
+#### 💬 Discussion Script: Deadlock Prevention
+
+```
+"To prevent deadlocks:
+ 1. Lock ordering: Always acquire locks in same global order (e.g., by entity ID)
+ 2. Timeout: Use tryLock(5, SECONDS) — detect deadlock, back off and retry
+ 3. Minimize lock scope: Hold lock for shortest possible time
+ 4. Avoid nested locks: If unavoidable, document the order
+ 
+ In production, I'd also add:
+ - Lock contention metrics (how long threads wait)
+ - Deadlock detection thread (JMX ThreadMXBean.findDeadlockedThreads())
+ - Circuit breaker: If lock wait > threshold, fail fast"
 ```
 
 ---
 
-### 🚨 Deep Dive 2: Exception Handling & Error Recovery
+### 🚨 Deep Dive 2: Exception Handling & Error Design
 
-> **Applies to**: Every LLD problem — shows production-readiness
+> **Applies to**: EVERY LLD problem
 
-#### Exception Hierarchy — What to Throw and When
+#### 💬 Discussion Script: Exception Philosophy
 
-| Situation | Exception Type | Example |
-|-----------|---------------|---------|
-| Invalid input (null, empty, negative) | `IllegalArgumentException` | `"Vehicle ID cannot be null"` |
-| Operation not allowed in current state | `IllegalStateException` | `"Cannot cancel a shipped order"` |
-| Resource not found | `NoSuchElementException` | `"Spot S-101 not found"` |
-| Capacity exceeded | Custom `CapacityFullException` | `"Parking lot is full"` |
-| Duplicate entry | `IllegalArgumentException` | `"Vehicle already parked"` |
-| Concurrent conflict | Custom `ConflictException` | `"Spot was taken by another thread"` |
-| Timeout | `TimeoutException` | `"Lock acquisition timed out"` |
-| Security violation | `SecurityException` | `"Unauthorized access"` |
+```
+"My exception handling philosophy:
 
-#### Custom Exception Template (Use When Built-ins Don't Fit)
-
-```java
-class CapacityFullException extends RuntimeException {
-    private final String resourceType;
-    private final int currentCapacity;
+ 1. FAIL FAST: Validate input at entry point. Don't let bad data travel deep.
+    - Objects.requireNonNull() for null checks
+    - IllegalArgumentException for bad params
     
-    public CapacityFullException(String resourceType, int capacity) {
-        super(resourceType + " is full (capacity: " + capacity + ")");
-        this.resourceType = resourceType;
-        this.currentCapacity = capacity;
-    }
+ 2. DOMAIN EXCEPTIONS: Each error type gets its own exception class:
+    - CapacityFullException → caller can redirect to another lot
+    - DuplicateEntityException → caller can return idempotent response
+    - EntityNotFoundException → caller can return 404
     
-    public String getResourceType() { return resourceType; }
-    public int getCurrentCapacity() { return currentCapacity; }
-}
-
-// Usage:
-if (spots.size() >= MAX_CAPACITY) {
-    throw new CapacityFullException("ParkingLot", MAX_CAPACITY);
-}
+ 3. NEVER return null: Use Optional<T> for 'might not exist' operations.
+    Returning null pushes the burden to every caller (who will forget).
+    
+ 4. EXCEPTION vs RETURN CODE:
+    - Exception for truly exceptional cases (capacity full, not found)
+    - Return Optional/Result for expected cases (search returns empty)
+    
+ 5. OBSERVER ISOLATION: One failing observer shouldn't crash the system.
+    Catch per-observer, log, continue to next."
 ```
 
-#### Error Recovery Patterns
-
-```java
-// ===== Retry with exponential backoff =====
-public <T> T retryWithBackoff(Supplier<T> operation, int maxRetries) {
-    int retries = 0;
-    while (retries < maxRetries) {
-        try {
-            return operation.get();
-        } catch (Exception e) {
-            retries++;
-            if (retries >= maxRetries) throw e;
-            try {
-                Thread.sleep((long) Math.pow(2, retries) * 100); // 200ms, 400ms, 800ms...
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                throw new RuntimeException("Interrupted during retry", ie);
-            }
-        }
-    }
-    throw new RuntimeException("Should not reach here");
-}
-
-// ===== Graceful degradation =====
-public Entity process() {
-    try {
-        return primaryStrategy.selectEntity(entities);
-    } catch (Exception e) {
-        Logger.getInstance().log("WARN", "Primary strategy failed, falling back");
-        return fallbackStrategy.selectEntity(entities);  // degrade gracefully
-    }
-}
-```
-
-#### Say This
+#### 💬 Discussion: Checked vs Unchecked Exceptions
 
 ```
-"For error handling, I'm following fail-fast: validate input immediately and throw 
- meaningful exceptions. I'm NOT returning null or -1 — callers should handle exceptions 
- explicitly. For production, I'd add retry with exponential backoff and graceful 
- degradation with a fallback strategy."
+"I'm using unchecked (RuntimeException) because:
+ - These are programming errors or exceptional business conditions
+ - Checked exceptions pollute every method signature
+ - Modern Java style (Spring, Guava) prefers unchecked
+ 
+ When I'd use checked:
+ - I/O operations where recovery is expected (FileNotFoundException → try another path)
+ - Operations where the caller MUST handle the failure (payment → must rollback)"
 ```
 
 ---
 
-### 📈 Deep Dive 3: Scalability & Performance
+### 📈 Deep Dive 3: Scalability & Data Structure Justification
 
-> **Applies to**: Any system that could grow beyond in-memory
+> **Applies to**: EVERY LLD problem — always justify your data structure choices
 
-#### Data Structure Choices — Justify Them
+#### 💬 Discussion Script: Data Structure Choices
 
-| Need | DS Choice | Time Complexity | Space | Say This |
-|------|----------|----------------|-------|----------|
-| Fast lookup by ID | `HashMap` | O(1) avg | O(N) | "HashMap gives constant-time lookup at the cost of linear space — right tradeoff for fast reads" |
-| Sorted + range queries | `TreeMap` | O(log N) | O(N) | "TreeMap for calendar slots where I need floor/ceiling operations" |
-| FIFO processing | `ArrayDeque` | O(1) | O(N) | "ArrayDeque is faster than LinkedList and cache-friendly" |
-| Priority processing | `PriorityQueue` | O(log N) insert/remove | O(N) | "Min-heap for scheduling by earliest deadline" |
-| Uniqueness check | `HashSet` | O(1) avg | O(N) | "HashSet for O(1) duplicate detection" |
-| LRU eviction | `LinkedHashMap` | O(1) | O(N) | "LinkedHashMap with removeEldestEntry for built-in LRU" |
-| Thread-safe map | `ConcurrentHashMap` | O(1) avg | O(N) | "ConcurrentHashMap for concurrent access without coarse locking" |
+| Need | I Chose | Why — Discussion Script |
+|------|---------|------------------------|
+| Fast lookup by ID | `HashMap` / `ConcurrentHashMap` | "O(1) average lookup. Trade-off: O(N) space, no ordering. Worth it for constant-time access." |
+| Sorted + range queries | `TreeMap` | "For calendar slots, I need 'find next available after 3pm' — TreeMap.ceilingKey() is O(log N)." |
+| FIFO processing | `ArrayDeque` | "ArrayDeque over LinkedList — cache-friendly (contiguous memory), no node allocation overhead." |
+| Priority processing | `PriorityQueue` | "Min-heap for 'process lowest priority first'. O(log N) insert/remove." |
+| Uniqueness check | `HashSet` | "O(1) duplicate detection. Essential for idempotency." |
+| LRU eviction | `LinkedHashMap` | "Built-in access-order tracking. Override removeEldestEntry() for auto-eviction. O(1) for all ops." |
+| Thread-safe map | `ConcurrentHashMap` | "Segment-level locking, not table-level. Better concurrency than Collections.synchronizedMap()." |
+| Concurrent counter | `AtomicLong` / `LongAdder` | "LongAdder for high-contention (splits into cells, sums on read). AtomicLong for low-contention." |
 
-#### Scaling from In-Memory to Distributed
+#### 💬 Discussion Script: Scaling Beyond In-Memory
 
 ```
-"Right now this is in-memory. To scale to millions of entities, I'd:
+"Right now this is in-memory. To scale to millions of entities:
 
- STEP 1 — Persistence Layer:
-  - Add a Repository interface (abstracts storage)
-  - Implement InMemoryRepository (current) and DatabaseRepository (PostgreSQL/DynamoDB)
-  - Dependency Inversion: Manager depends on Repository interface, not implementation
+ STEP 1 — Repository Pattern (abstract storage):
+  Interface EntityRepository { save(), findById(), findByStatus() }
+  Swap InMemoryRepository → DatabaseRepository without changing Manager
 
  STEP 2 — Caching:
-  - Add Redis as a read cache in front of the database
-  - Cache-aside pattern: check cache → miss → read DB → populate cache
-  - TTL-based invalidation for simplicity
+  Redis cache-aside: check cache → miss → read DB → populate cache
+  TTL-based invalidation for simplicity, pub/sub for real-time
 
  STEP 3 — Horizontal Scaling:
-  - Stateless service instances behind a load balancer
-  - Shard data by entity ID (consistent hashing)
-  - Use distributed locks (Redis/ZooKeeper) instead of in-process locks
+  Stateless services behind load balancer
+  Shard by entity ID (consistent hashing)
+  Distributed locks (Redis SETNX) instead of in-process ReadWriteLock
 
  STEP 4 — Event-Driven:
-  - Replace synchronous Observer with async message queue (Kafka/SQS)
-  - Eventual consistency for notifications
-  - Dead letter queue for failed events"
-```
+  Replace sync Observer with Kafka/SQS
+  Eventual consistency for notifications
+  Dead letter queue for failed events
 
-#### Repository Pattern (Show How to Abstract Storage)
-
-```java
-// ===== Interface (abstraction) =====
-interface EntityRepository {
-    void save(Entity entity);
-    Optional<Entity> findById(String id);
-    List<Entity> findByStatus(Status status);
-    void delete(String id);
-}
-
-// ===== In-Memory Implementation (interview) =====
-class InMemoryEntityRepository implements EntityRepository {
-    private final Map<String, Entity> store = new ConcurrentHashMap<>();
-    
-    @Override
-    public void save(Entity entity) { store.put(entity.getId(), entity); }
-    @Override
-    public Optional<Entity> findById(String id) { return Optional.ofNullable(store.get(id)); }
-    @Override
-    public List<Entity> findByStatus(Status status) {
-        return store.values().stream()
-            .filter(e -> e.getStatus() == status)
-            .collect(Collectors.toList());
-    }
-    @Override
-    public void delete(String id) { store.remove(id); }
-}
-
-// ===== Database Implementation (production — mention verbally) =====
-// class JdbcEntityRepository implements EntityRepository { ... }
-// class DynamoEntityRepository implements EntityRepository { ... }
+ STEP 5 — CQRS (if read/write patterns diverge):
+  Separate read model (denormalized, fast queries)
+  Write model (normalized, strong consistency)
+  Sync via events"
 ```
 
 ---
 
 ### 🧪 Deep Dive 4: Testing Strategy
 
-> **Applies to**: Every LLD — shows quality mindset
+> **Applies to**: EVERY LLD problem — shows quality mindset
 
-#### Testing Pyramid for Your Design
+#### 💬 Discussion Script
 
 ```
-"For testing this system, I'd follow the testing pyramid:
+"My testing approach for this design:
 
  UNIT TESTS (70%):
-  - Each Strategy independently with edge cases
-  - Entity validation (null ID, invalid type)
-  - State transitions (valid + invalid)
-  - Factory creates correct types
-  - Observer receives events correctly
-
+  - Each Strategy independently: RoundRobin cycles correctly, LeastUsed picks minimum
+  - Entity validation: null ID → IllegalArgumentException, terminal status → IllegalStateException
+  - State transitions: valid (ACTIVE → COMPLETED) and invalid (COMPLETED → anything)
+  - Factory creates correct types for each input
+  - Observer receives events with correct data
+  
  INTEGRATION TESTS (20%):
-  - Manager + Strategy + Repository together
-  - Full workflow: add → process → remove
-  - Observer chain fires correctly on state change
-
+  - Full workflow: add → process → remove → verify state
+  - Manager + Strategy + Observer together
+  - Error paths: capacity full, duplicate, not found
+  
  CONCURRENCY TESTS (10%):
-  - Multiple threads adding/removing simultaneously
-  - No lost updates, no deadlocks
-  - Verify thread-safe collections behave correctly under load"
-```
-
-#### Example Unit Tests (Mention Verbally or Quick-Write)
-
-```java
-// ===== Strategy Unit Test =====
-@Test
-void roundRobin_shouldCycleThroughEntities() {
-    SimpleStrategy strategy = new SimpleStrategy();
-    List<Entity> entities = List.of(new Entity("A", TYPE_A), new Entity("B", TYPE_B));
-    
-    assertEquals("A", strategy.selectEntity(entities).getId());
-    assertEquals("B", strategy.selectEntity(entities).getId());
-    assertEquals("A", strategy.selectEntity(entities).getId()); // wraps around
-}
-
-@Test
-void strategy_shouldThrowOnEmptyList() {
-    assertThrows(IllegalStateException.class, 
-        () -> new SimpleStrategy().selectEntity(Collections.emptyList()));
-}
-
-// ===== State Transition Test =====
-@Test
-void order_shippedCannotBeCancelled() {
-    Order order = new Order("ORD-1");
-    order.next(); // → PAID
-    order.next(); // → SHIPPED
-    order.cancel(); // should NOT transition
-    assertEquals("SHIPPED", order.getStatus()); // stays SHIPPED
-}
-
-// ===== Concurrency Test =====
-@Test
-void concurrentAddsShouldNotLoseEntities() throws InterruptedException {
-    SystemManager manager = new SystemManager(new SimpleStrategy());
-    int numThreads = 100;
-    ExecutorService executor = Executors.newFixedThreadPool(numThreads);
-    CountDownLatch latch = new CountDownLatch(numThreads);
-    
-    for (int i = 0; i < numThreads; i++) {
-        final int id = i;
-        executor.submit(() -> {
-            manager.addEntity(new Entity("E" + id, EntityType.TYPE_A));
-            latch.countDown();
-        });
-    }
-    
-    latch.await(5, TimeUnit.SECONDS);
-    assertEquals(numThreads, manager.getActiveCount()); // no lost entities
-}
+  - 100 threads adding/removing simultaneously → no lost entities
+  - CountDownLatch to synchronize start, verify final state
+  - No deadlocks (test with timeout)
+  
+ PROPERTY-BASED TESTING:
+  - Invariant: activeCount + completedCount = totalAdded (always)
+  - Invariant: no two entities share same ID
+  - Invariant: capacity never exceeded"
 ```
 
 ---
 
-### 📊 Deep Dive 5: Metrics, Monitoring & Observability
+### 📊 Deep Dive 5: Monitoring & Production Readiness
 
-> **Applies to**: Every LLD — shows production awareness
+> **Applies to**: EVERY LLD — shows you think beyond the interview
+
+#### 💬 Discussion Script
 
 ```
-"In production, I'd instrument this system with:
+"In production, I'd instrument this with:
 
- METRICS (expose via JMX or Prometheus):
-  - Operation counts: total add/remove/process calls (Counter)
-  - Active entity count (Gauge)
+ METRICS:
+  - Operation counts: add/remove/process calls (Counter)
+  - Active entity count (Gauge)  
   - Operation latency p50/p99 (Histogram)
   - Error rate by exception type (Counter)
-  - Cache hit/miss ratio (if caching added)
-  - Queue depth (if async processing)
-  - Lock contention: time spent waiting for locks
+  - Lock contention time (Histogram)
 
  HEALTH CHECK:
-  - /health endpoint returning UP/DOWN
-  - Check: database reachable, queue writable, memory < 80%
+  - /health returns UP/DOWN
+  - Capacity > 80% → WARN, 100% → DEGRADED
 
  LOGGING:
-  - Structured JSON logs with correlation IDs
-  - Log every state transition (audit trail)
-  - Log every error with full stack trace
-  - WARN on near-capacity (>80% full), ERROR on full
+  - Structured JSON with correlation IDs
+  - Every state transition logged (audit trail)
+  - WARN at 80% capacity, ERROR at full
   
  ALERTING:
   - Error rate > 1% → page on-call
   - Latency p99 > 500ms → investigate
-  - Entity count approaching capacity → capacity alert"
-```
-
-#### Metrics Code Example (Lightweight — Mention Verbally)
-
-```java
-class MetricsCollector {
-    private final AtomicLong totalOps = new AtomicLong(0);
-    private final AtomicLong errorCount = new AtomicLong(0);
-    private final LongAdder totalLatencyNanos = new LongAdder();
-    
-    public <T> T trackOperation(Supplier<T> operation) {
-        long start = System.nanoTime();
-        try {
-            T result = operation.get();
-            totalOps.incrementAndGet();
-            return result;
-        } catch (Exception e) {
-            errorCount.incrementAndGet();
-            throw e;
-        } finally {
-            totalLatencyNanos.add(System.nanoTime() - start);
-        }
-    }
-    
-    public double getErrorRate() {
-        long total = totalOps.get() + errorCount.get();
-        return total == 0 ? 0 : (double) errorCount.get() / total;
-    }
-}
+  - Approaching capacity → auto-scale or alert"
 ```
 
 ---
 
-### 🔄 Deep Dive 6: Extensibility & Future-Proofing
+### 💾 Deep Dive 6: Data Integrity & Consistency
 
-> **Applies to**: Every LLD — shows you think long-term
+> **Applies to**: Booking, Inventory, Parking, any limited-resource system
 
-#### Extension Points in Your Design
+#### 💬 Discussion Script
+
+```
+"For data integrity:
+
+ 1. ATOMIC OPERATIONS:
+    Find available + assign + create ticket — all inside one write lock.
+    If any step fails, nothing changes (no partial state).
+
+ 2. IDEMPOTENCY:
+    Same request → same result. If vehicle already parked, return existing ticket.
+    In distributed: use idempotency key (request UUID) to deduplicate.
+
+ 3. NO DOUBLE BOOKING:
+    Lock before checking + assigning. Check-then-act under single lock.
+    Distributed: Redis SETNX (SET if Not eXists) with TTL.
+
+ 4. EVENTUAL CONSISTENCY:
+    Notifications can be eventually consistent (async). But the booking 
+    itself must be strongly consistent (atomic).
+
+ 5. COMPENSATING TRANSACTIONS:
+    If notification fails after booking succeeds, don't rollback the booking.
+    Retry the notification. Use a dead letter queue for failed retries."
+```
+
+---
+
+### 🔄 Deep Dive 7: Extensibility & Future-Proofing
+
+> **Proactively bring this up to show design maturity**
+
+#### 💬 Discussion Script
 
 ```
 "My design has these extension points:
 
- 1. NEW ALGORITHMS → Add new Strategy implementation (Open/Closed)
-    - No change to Manager class
-    - Example: Add WeightedRoundRobin just by implementing ProcessingStrategy
+ 1. NEW ALGORITHMS → Add new Strategy class (Open/Closed)
+ 2. NEW ENTITY TYPES → Add enum value + optional subclass
+ 3. NEW NOTIFICATIONS → Add new Observer (zero change to publisher)
+ 4. NEW STATES → Add new State class with its own transitions
+ 5. NEW STORAGE → Implement Repository interface (InMemory → PostgreSQL)
+ 6. NEW MIDDLEWARE → Insert handler in Chain of Responsibility
 
- 2. NEW ENTITY TYPES → Add enum value + (optionally) new subclass
-    - Factory handles creation logic
-    - Existing code unchanged
-
- 3. NEW NOTIFICATIONS → Add new Observer implementation
-    - Subscribe to events — zero change to event producers
-    - Example: Add WebhookNotifier without touching EmailNotifier
-
- 4. NEW STATES → Add new State implementation  
-    - Define transitions in the new state class
-    - Existing states don't need modification
-
- 5. NEW STORAGE → Add new Repository implementation
-    - Switch from InMemory to Database by swapping implementation
-    - Manager doesn't know or care about storage details
-
- 6. NEW MIDDLEWARE → Add new Handler in Chain of Responsibility
-    - Insert anywhere in the chain
-    - Example: Add CachingHandler between Auth and Validation"
-```
-
-#### Configuration & Feature Flags (Advanced — Mention Verbally)
-
-```
-"For production, I'd make the system configurable:
- - Strategy selection via config file / env variable (not hardcoded)
- - Feature flags to enable/disable observers
- - Capacity limits configurable per deployment
- - Log level adjustable at runtime
- 
- This lets ops change behavior without code changes or redeployment."
+ Key: Every extension is ADDITIVE — we add new classes, never modify existing ones.
+ This is the Open/Closed Principle in action."
 ```
 
 ---
 
-### 💾 Deep Dive 7: Data Integrity & Consistency
+## 🔥 UNIVERSAL DISCUSSION TOPICS — Use in ANY LLD Interview
 
-> **Applies to**: Parking Lot, Booking, Inventory, Order Management — anything with limited resources
+> **These are your secret weapons. Each is a 2-3 minute discussion you can insert into any LLD problem.**
 
-```
-"For data integrity, I ensure:
+### 💬 Discussion Bank: 20 Reusable Topics
 
- 1. ATOMIC OPERATIONS — All resource allocation is inside a single lock:
-    - Find available → Mark occupied → Create ticket — all atomic
-    - If any step fails, nothing changes (no partial state)
+#### Architecture & Design Decisions
 
- 2. IDEMPOTENCY — Same request produces same result:
-    - Use idempotency keys for create operations
-    - Duplicate park request with same vehicle → return existing ticket, don't double-park
+| # | Topic | When to Use | 30-Second Script |
+|---|-------|-------------|-----------------|
+| 1 | **Composition vs Inheritance** | When deciding entity hierarchy | "I prefer composition — Vehicle HAS-A Type rather than Bike EXTENDS Vehicle. More flexible, avoids fragile base class." |
+| 2 | **Interface vs Abstract Class** | When creating abstractions | "Interface when no shared state (Strategy). Abstract class when sharing helper methods (Template Method)." |
+| 3 | **Enum vs Class hierarchy** | When modeling types | "Enum when types differ by data only. Class hierarchy when types differ by behavior." |
+| 4 | **Mutable vs Immutable** | When designing entities | "Immutable objects are inherently thread-safe. I make everything immutable by default, add mutability only when needed." |
+| 5 | **Pull vs Push model** | When notifications come up | "Push (Observer): lower latency, more complex. Pull (polling): simpler, higher latency. Push for real-time, pull for batch." |
 
- 3. NO DOUBLE BOOKING:
-    - Lock before checking availability + assigning
-    - Use compareAndSet for lock-free alternatives
-    - In distributed: use distributed locks (Redis SETNX with TTL)
+#### Concurrency & Safety
 
- 4. AUDIT TRAIL:
-    - Log every state change with timestamp, actor, before/after
-    - Use Event Sourcing pattern if full history needed
-    - Immutable event log → can reconstruct state at any point"
-```
+| # | Topic | When to Use | 30-Second Script |
+|---|-------|-------------|-----------------|
+| 6 | **synchronized vs ReadWriteLock** | Always | "synchronized is mutual exclusion. RWLock allows concurrent reads. If reads > writes, RWLock is strictly better." |
+| 7 | **AtomicInteger vs lock** | For counters/flags | "AtomicInteger is lock-free (CAS loop). No thread suspension, no context switch. Better for simple operations." |
+| 8 | **volatile vs synchronized** | For single variable visibility | "volatile guarantees visibility (all threads see latest value). But NOT atomicity. i++ is still not safe with volatile." |
+| 9 | **Check-then-act race condition** | Always | "if (available) then assign is a race condition. The check + act MUST be atomic — either inside a lock or using CAS." |
+| 10 | **Optimistic vs Pessimistic locking** | For resource contention | "Optimistic: read, modify, check version, retry on conflict. Pessimistic: lock first, modify, unlock. Optimistic wins when conflicts are rare." |
 
-```java
-// Idempotency example:
-public Ticket parkVehicle(Vehicle vehicle) {
-    rwLock.writeLock().lock();
-    try {
-        // Idempotency: already parked?
-        if (vehicleToTicket.containsKey(vehicle.getId())) {
-            return vehicleToTicket.get(vehicle.getId()); // return existing, don't double-park
-        }
-        
-        // Atomic: find + assign + create ticket
-        Spot spot = findAvailableSpot(vehicle.getType())
-            .orElseThrow(() -> new CapacityFullException("ParkingLot", MAX_SPOTS));
-        spot.setOccupied(true);
-        spot.setVehicle(vehicle);
-        
-        Ticket ticket = new Ticket(spot, vehicle, Instant.now());
-        vehicleToTicket.put(vehicle.getId(), ticket);
-        
-        // Notify observers (async in production)
-        events.notify("VEHICLE_PARKED", ticket);
-        
-        return ticket;
-    } finally {
-        rwLock.writeLock().unlock();
-    }
-}
-```
+#### Error Handling & Robustness
 
----
+| # | Topic | When to Use | 30-Second Script |
+|---|-------|-------------|-----------------|
+| 11 | **Fail-fast vs Fail-safe** | Always | "Fail-fast: validate input immediately, throw on bad data. Prevents bad state from propagating. Always my default." |
+| 12 | **Optional vs null** | For lookups | "Return Optional, never null. Forces caller to handle absence. Null is the billion-dollar mistake." |
+| 13 | **Custom vs generic exceptions** | When handling errors | "CapacityFull vs RuntimeException — domain exceptions let callers react differently. It's part of the API contract." |
+| 14 | **Retry with backoff** | For transient failures | "Exponential backoff (100ms, 200ms, 400ms) with jitter. Prevents thundering herd on recovery." |
+| 15 | **Graceful degradation** | For fallback strategies | "Primary strategy fails → fall back to simpler strategy. Better to serve degraded than to error." |
 
-### 🏗️ Deep Dive Summary — Quick Reference Card
+#### Scalability & Production
 
-> **Before your interview, review this card. Proactively bring up 2-3 of these:**
-
-| Deep Dive | When to Bring Up | Key Point to Make |
-|-----------|-----------------|-------------------|
-| **Thread Safety** | Always (if not asked, mention it) | "I used ReadWriteLock for concurrent reads + exclusive writes" |
-| **Error Handling** | Always | "Fail-fast with meaningful exceptions, no null returns" |
-| **Scalability** | When interviewer asks "how would this scale?" | "Repository pattern abstracts storage — swap InMemory for DB" |
-| **Testing** | End of interview or when asked | "Unit tests for each strategy, concurrency tests for race conditions" |
-| **Monitoring** | Shows production thinking | "I'd track operation count, latency p99, error rate, capacity utilization" |
-| **Extensibility** | When explaining design choices | "New algorithms = new Strategy class, zero changes to existing code" |
-| **Data Integrity** | For booking/inventory problems | "Atomic allocation inside lock, idempotency keys prevent duplicates" |
-
----
-
-## 🎯 Microsoft LLD-Specific Tips
-
-### What Microsoft Interviewers Look For in LLD
-1. **SOLID Principles**: Can you design with clean OOP?
-2. **Design Patterns**: Do you know and apply them correctly?
-3. **Thread Safety**: Can you handle concurrent access?
-4. **Clean Code**: Readable, well-named, well-structured
-5. **Extensibility**: Can new features be added without rewriting?
-6. **Error Handling**: Meaningful exceptions, not silent failures
-
-### 🗣️ Key Phrases to Use
-
-| Moment | Say This |
-|--------|----------|
-| Starting | "Let me first clarify the requirements and scope..." |
-| Entity design | "I'll keep Vehicle as a pure data class — Single Responsibility." |
-| Interface design | "I'll use an interface here so we can swap implementations — Open/Closed Principle." |
-| Pattern choice | "This is a classic Strategy pattern — multiple algorithms, same interface." |
-| Thread safety | "Since multiple threads may call this, I'll use a ReadWriteLock for better concurrency." |
-| Error handling | "I'll throw IllegalArgumentException for invalid input — fail fast." |
-| Extensibility | "To add a new vehicle type, we just add an enum value and implement the interface — no existing code changes." |
-| Trade-offs | "I chose HashMap for O(1) lookup at the cost of O(N) extra space. For this scale, that's the right trade-off." |
+| # | Topic | When to Use | 30-Second Script |
+|---|-------|-------------|-----------------|
+| 16 | **Repository pattern** | When storage comes up | "Abstract storage behind an interface. Swap InMemory for DB without changing business logic. Dependency inversion." |
+| 17 | **Sync vs Async notifications** | When Observer/events come up | "Sync is simpler but blocks caller. Async (ExecutorService, Kafka) decouples latency. Start sync, extract to async." |
+| 18 | **Idempotency** | For create/update operations | "Same request → same result. Use idempotency key to detect duplicates. Essential for retry safety." |
+| 19 | **Event Sourcing vs State** | For audit/history needs | "State: store current state only. Event Sourcing: store all events, derive state. Event Sourcing when you need full history." |
+| 20 | **Cache-aside vs Write-through** | When caching comes up | "Cache-aside: app manages cache (check cache → miss → read DB → populate). Write-through: cache auto-syncs with DB." |
 
 ---
 
 ## 📋 Quick Self-Check Before Finishing
 
 - [ ] Did I state **requirements** clearly (functional + non-functional)?
-- [ ] Did I identify the right **design pattern(s)**?
-- [ ] Did I follow **SOLID** principles?
-- [ ] Is my code **thread-safe** for concurrent access?
+- [ ] Did I identify the right **design pattern(s)** and explain WHY?
+- [ ] Did I follow **SOLID** principles and name them explicitly?
+- [ ] Is my code **thread-safe** and can I explain my locking choice?
 - [ ] Did I throw **meaningful exceptions** (not return null)?
-- [ ] Did I use **proper encapsulation** (private fields, public methods)?
+- [ ] Did I discuss at least **3 trade-offs** proactively?
 - [ ] Can new features be added **without modifying** existing code?
-- [ ] Did I demonstrate the system works with a **demo/main method**?
-- [ ] Can I discuss **scaling** and **production concerns** verbally?
+- [ ] Did I walk through a **data flow** for the main operation?
+- [ ] Can I discuss **scaling** and **production concerns**?
+- [ ] Did I **invite discussion** at each major decision point?
+
+---
+
+## 🗣️ Key Phrases Cheat Sheet
+
+| Moment | Say This |
+|--------|----------|
+| **Starting** | "Let me first clarify the requirements and scope..." |
+| **Every design decision** | "I chose X over Y because... the trade-off is..." |
+| **Entity design** | "Vehicle and Spot are separate because they have different lifecycles — SRP." |
+| **Interface creation** | "I'll use an interface so we can swap implementations — Open/Closed Principle." |
+| **Pattern choice** | "This is Strategy because we have multiple algorithms for the same operation." |
+| **Thread safety** | "ReadWriteLock here because reads are 10x more frequent than writes." |
+| **Error handling** | "I throw CapacityFullException, not RuntimeException, so callers can react differently." |
+| **Data structure** | "HashMap for O(1) lookup. TreeMap if we need range queries." |
+| **Extensibility** | "Adding a new type means one new class — zero changes to existing code." |
+| **Production** | "In production I'd add metrics: operation count, latency p99, error rate." |
+| **Inviting discussion** | "Would you like me to dig deeper into the concurrency model, or move on to...?" |
+| **When stuck** | "Let me think about the trade-offs here... I see two approaches..." |
 
 ---
 
 ## 📚 Common Microsoft LLD Problems (Practice List)
 
-| Problem | Key Patterns | Key Data Structures |
-|---------|-------------|-------------------|
-| Parking Lot | Strategy, Factory | HashMap, PriorityQueue |
-| Elevator System | State, Strategy | PriorityQueue (min/max heap) |
-| LRU Cache | - | HashMap + Doubly Linked List |
-| Load Balancer | Strategy | List, AtomicInteger |
-| Rate Limiter | Strategy | HashMap, Queue (sliding window) |
-| File System | Composite | Tree (N-ary) |
-| Logger / Logging Framework | Singleton, Chain of Responsibility | Queue, HashMap |
-| Task Scheduler | Strategy, Observer | PriorityQueue, ScheduledExecutor |
-| Chat System | Observer, Mediator | HashMap, List |
-| Hotel Booking | Strategy | HashMap, TreeMap |
-| Library Management | Factory | HashMap, List |
-| Vending Machine | State | HashMap, enum |
-| Online Chess | State, Strategy | 2D Array, enum |
-| Notification Service | Observer, Strategy | Queue, HashMap |
-| Circuit Breaker | State | AtomicInteger, Timer |
+| Problem | Key Patterns | Key Discussion Points |
+|---------|-------------|----------------------|
+| Parking Lot | Strategy, Factory | Double-booking prevention, multi-floor scaling, pricing strategies |
+| Elevator System | State, Strategy | State machine transitions, scheduling algorithms (SCAN vs LOOK) |
+| LRU Cache | - | LinkedHashMap internals, O(1) design, thread-safety, eviction policies |
+| Load Balancer | Strategy | Round Robin vs Weighted vs Least Connections, health checking |
+| Rate Limiter | Strategy | Token Bucket vs Sliding Window vs Fixed Window, distributed rate limiting |
+| File System | Composite | Composite pattern, recursive operations, permissions model |
+| Logger | Singleton, Chain | Why Singleton (sometimes), log level filtering, async logging |
+| Task Scheduler | Strategy, Observer | Priority queue, thread pool sizing, missed schedule handling |
+| Chat System | Observer, Mediator | Message ordering, read receipts, online/offline presence |
+| Hotel Booking | Strategy | Overbooking policy, cancellation, calendar range queries (TreeMap) |
+| Vending Machine | State | State machine design, payment handling, inventory management |
+| Online Chess | State, Strategy | Move validation per piece type, check/checkmate detection |
+| Notification Service | Observer, Strategy | Multi-channel delivery, retry policies, user preferences |
+| Circuit Breaker | State | CLOSED→OPEN→HALF_OPEN transitions, threshold configuration |
+| Text Editor | Command | Undo/redo stacks, cursor management, collaborative editing |
+
+---
+
+## 🎯 30-Second Pre-Interview Warmup
+
+> Read this right before your interview:
+
+```
+1. DISCUSS more than you CODE — every decision gets a "because..."
+2. Use SOLID names explicitly: "This is Single Responsibility"
+3. Show TRADE-OFFS: "I chose X over Y because..."
+4. Mention CONCURRENCY even if not asked
+5. Write CLEAN code, not COMPLETE code — 100 lines > 300 lines
+6. END with: "Here's how this would scale in production..."
+7. INVITE discussion: "Would you like me to explore this further?"
+```
+
+**Good luck! 🚀**
