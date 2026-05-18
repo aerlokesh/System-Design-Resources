@@ -778,21 +778,37 @@ Rate limiting:
 
 ## Interview Talking Points & Scripts
 
-### Architecture Overview
+### Script 1: Gateway Architecture and Scaling
 
-> *"Each gateway server handles 65K concurrent WebSocket connections using epoll-based non-blocking I/O — no thread-per-connection, which would be impossible at scale. For 10M concurrent users, we need ~154 gateway servers behind an NLB with least-connections routing. Session state is stored in Redis: a mapping from user_id to their gateway server."*
+> *"Each gateway server handles 65K-500K concurrent WebSocket connections using epoll-based non-blocking I/O — no thread-per-connection, which would require terabytes of stack memory at scale. For 10M concurrent users, we need ~20-154 gateway servers (depending on language: Erlang/Go handle 500K+, Java/Node closer to 100K) behind a Layer 4 NLB with least-connections routing. NOT round-robin — WebSocket connections are long-lived and heterogeneous in traffic, so round-robin creates hotspots. Each connection is registered in Redis: `HSET session:{user_id} gateway_id GW-7 connected_at {timestamp} device mobile`. This registry is the foundation for cross-gateway routing."*
 
-### Cross-Gateway Messaging
+### Script 2: Cross-Gateway Message Delivery (The Complete Flow)
 
-> *"When Alice on Gateway 7 messages Bob on Gateway 12, the message flows through our Message Service which persists it in Cassandra, then publishes to Redis Pub/Sub targeting Gateway 12's channel. Gateway 12 pushes it down Bob's WebSocket. End-to-end latency: ~30ms. If Bob is offline, the message stays in Cassandra and is delivered as part of a catch-up query when Bob reconnects."*
+> *"When Alice on Gateway 7 messages Bob on Gateway 12, the message goes through a precise pipeline: (1) Alice's WebSocket → Gateway 7 validates and forwards to Message Service. (2) Message Service persists to Cassandra FIRST (durability guarantee — never lose a message), assigns a message_id and conversation-level sequence number, then publishes to Redis Pub/Sub targeting Gateway 12's channel. (3) Gateway 12 pushes via Bob's WebSocket. (4) Bob's client renders and sends a client-side ACK (`{type: 'ack', msg_id: 'xyz'}`). (5) Server records delivery status. End-to-end: ~30-50ms. If Bob is offline — no session key in Redis — we skip the push, message stays in Cassandra's outbox, and we fire a push notification via FCM/APNs. On reconnect, Bob's client sends its last_seen_sequence, and the server replays all missed messages in order."*
 
-### Presence
+### Script 3: Presence System (Online/Offline/Last Seen)
 
-> *"Presence is heartbeat-based: the client sends a heartbeat every 30 seconds, which refreshes a Redis key with a 70-second TTL. If two consecutive heartbeats are missed, the key expires and the user shows as offline. Checking 500 contacts' presence is a single Redis MGET — under 2ms. We only broadcast presence changes on transitions (offline→online, online→offline), not every heartbeat, reducing Pub/Sub traffic by 95%."*
+> *"Presence uses heartbeat + Redis TTL — the client sends a ping every 30 seconds, gateway refreshes: `EXPIRE presence:{user_id} 70`. If two heartbeats are missed (70s), the key expires → user transitions to 'offline'. The CRITICAL optimization: we broadcast ONLY on state transitions (online→offline, offline→online), not on every heartbeat. Without this, 10M users × heartbeat every 30s = 333K Redis writes/sec just for presence. With transition-only broadcasting, we process maybe 50K state-change events/sec at peak — 85% less traffic. For 'last seen', we `SET last_seen:{user_id} {timestamp}` on disconnect. Checking 500 contacts' presence is a single `MGET` — under 2ms. For the UI, I'd also batch presence queries: load all 500 contacts' presence in one request on app open, then rely on push events for subsequent changes."*
 
-### Graceful Degradation
+### Script 4: Graceful Degradation Under Load
 
-> *"Under load, we shed non-critical real-time features in priority order: first typing indicators (saves 40% of WebSocket traffic), then presence updates (batch every 30s instead of real-time), then read receipts. Message delivery is never shed — it's the core value proposition. If WebSocket fails entirely, the client falls back to SSE, then to long polling as a last resort."*
+> *"Under load, we shed non-critical real-time features in priority order — this is what separates production systems from whiteboard designs. First shed: typing indicators (saves 30-40% of WebSocket traffic, purely cosmetic — 'Alice is typing' is nice-to-have, not essential). Second: batch presence to 30-second intervals (users tolerate 'online' being 30s delayed). Third: read receipts (batch every 10s). Fourth: reduce heartbeat frequency from 30s to 60s. NEVER shed: message delivery, authentication, or minimum heartbeat. If the entire WebSocket layer is overwhelmed, clients fall back automatically: WebSocket → SSE (unidirectional, still push-based, auto-reconnect) → long-polling (30s hold, HTTP-based, works everywhere). The client SDK implements this as a state machine with automatic detection and recovery."*
+
+### Script 5: Connection Lifecycle and Reconnection
+
+> *"In production, connections are fragile — mobile users traverse tunnels, switch between WiFi and cellular, apps get backgrounded. My reconnection protocol handles this: on disconnect, the client uses exponential backoff with jitter (1s, 2s, 4s, 8s cap, plus random 0-50% jitter) to avoid thundering herd when a gateway crashes and 500K clients try to reconnect simultaneously. On reconnect, the client presents a session token (not full re-auth) and its `last_received_sequence_number`. The server replays all missed messages since that sequence — no data loss. If the gap is too large (>1000 messages), the server sends a snapshot instead of replaying all ops. For ordering, each conversation has its own monotonically increasing sequence counter — clients reorder locally if messages arrive out of sequence."*
+
+### Script 6: Fan-Out for Broadcast Scenarios (1-to-Millions)
+
+> *"For broadcast scenarios — live sports scores to 10M subscribers, stock price ticks to 5M traders — point-to-point fan-out is impossible. I'd use hierarchical fan-out: the source publishes to a Kafka topic. Each gateway server is a consumer in the same consumer group — Kafka delivers ONE copy per gateway. Each gateway then does LOCAL fan-out to its 100K-500K relevant subscribers. So pushing to 10M clients requires only 20-100 Kafka messages (one per gateway), not 10M individual pushes. Each gateway maintains an in-memory subscription map: `symbol → [connection_ids]`. When AAPL price changes, the gateway pushes only to connections subscribed to AAPL — not to all 500K connections. This reduces actual push volume by 90%+ compared to naive fan-out."*
+
+### Script 7: Group Chat and Channel Architecture
+
+> *"For Slack-like channels with thousands of members, I'd give each channel its own Redis Pub/Sub channel — NOT fan-out per user. When a message arrives in #general (5000 members, spread across 50 gateways), the publish is ONE Redis PUBLISH that all 50 subscribed gateways receive. Each gateway then locally pushes to its connected members of that channel (maybe 100 users per gateway). The gateway keeps an in-memory mapping: `channel_id → [local_connection_ids]`. Join/leave only updates the local set + Redis metadata. This makes group messages O(num_gateways) not O(num_members). For very large channels (100K+ members like a company-wide announce channel), we further optimize by batching pushes and only pushing to users who have the channel actively visible."*
+
+### Script 8: Memory and Resource Planning
+
+> *"Each WebSocket connection costs ~8-16 KB total: 4 KB kernel TCP socket buffers (tunable via net.ipv4.tcp_rmem), 2-10 KB application state (user_id, device info, subscriptions, message buffers). For a gateway with 500K connections: 500K × 16 KB = 8 GB RAM. I'd use 32 GB machines for headroom. File descriptors: 500K connections = 500K fds — need to set `ulimit -n 1000000` and `fs.file-max` accordingly. Network: at 1 KB average message size and 100 messages/sec per gateway, that's 100 MB/sec — well within 10 Gbps NIC. CPU: epoll is O(1) per event, so even 500K connections with sporadic traffic use minimal CPU. The bottleneck is almost always the cross-gateway messaging (Redis Pub/Sub throughput), not the gateway itself."*
 
 ---
 
